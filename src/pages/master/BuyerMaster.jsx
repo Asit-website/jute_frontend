@@ -16,27 +16,22 @@ const statusColor = { Active: 'success', Inactive: 'error' }
 
 const emptyForm = {
   name: '',
-  contactPerson: '',
-  phone: '',
-  email: '',
+  taxRegNo: '',
   address: '',
-  city: '',
-  state: '',
-  gstin: '',
-  pan: '',
+  contactDetails: '',
   status: 'Active',
 }
 
 const initialData = [
-  { id: 1, name: 'Ramesh Traders', contactPerson: 'Ramesh Shah', phone: '9830012345', email: 'ramesh@trades.com', address: '12 Bara Bazar St', city: 'Kolkata', state: 'West Bengal', gstin: '19AAACR1234A1Z1', pan: 'AAACR1234A', status: 'Active' },
-  { id: 2, name: 'Bengal Jute Co.', contactPerson: 'Subhas Bose', phone: '9831122334', email: 'subhas@bengaljute.com', address: '45 Salt Lake Sec V', city: 'Kolkata', state: 'West Bengal', gstin: '19AAACB4567B1Z2', pan: 'AAACB4567B', status: 'Active' },
-  { id: 3, name: 'Kolkata Mills', contactPerson: 'Amit Sen', phone: '9832233445', email: 'amit@kolkatamills.co.in', address: '78 Gariahat Rd', city: 'Kolkata', state: 'West Bengal', gstin: '19AAACK7890C1Z3', pan: 'AAACK7890C', status: 'Active' },
-  { id: 4, name: 'Agro Fibers Ltd.', contactPerson: 'Pradip Roy', phone: '9833344556', email: 'pradip@agrofibers.com', address: '121 Belgharia Rd', city: 'Howrah', state: 'West Bengal', gstin: '19AAACA1122D1Z4', pan: 'AAACA1122D', status: 'Active' },
-  { id: 5, name: 'Sona Traders', contactPerson: 'Sanjay Dutt', phone: '9834455667', email: 'sanjay@sonatraders.com', address: '56 Liluah Chowk', city: 'Howrah', state: 'West Bengal', gstin: '19AAACS3344E1Z5', pan: 'AAACS3344E', status: 'Inactive' },
+  { id: 1, name: 'Ramesh Traders', taxRegNo: '19AAACR1234A1Z1', address: '12 Bara Bazar St, Kolkata, West Bengal', contactDetails: '9830012345 / ramesh@trades.com', status: 'Active' },
+  { id: 2, name: 'Bengal Jute Co.', taxRegNo: '19AAACB4567B1Z2', address: '45 Salt Lake Sec V, Kolkata, West Bengal', contactDetails: '9831122334 / subhas@bengaljute.com', status: 'Active' },
+  { id: 3, name: 'Kolkata Mills', taxRegNo: '19AAACK7890C1Z3', address: '78 Gariahat Rd, Kolkata, West Bengal', contactDetails: '9832233445 / amit@kolkatamills.co.in', status: 'Active' },
+  { id: 4, name: 'Agro Fibers Ltd.', taxRegNo: '19AAACA1122D1Z4', address: '121 Belgharia Rd, Howrah, West Bengal', contactDetails: '9833344556 / info@agrofibers.com', status: 'Active' },
+  { id: 5, name: 'Sona Traders', taxRegNo: '19AAACS3344E1Z5', address: '56 Liluah Chowk, Howrah, West Bengal', contactDetails: '9834455667 / sanjay@sonatraders.com', status: 'Inactive' },
 ]
 
-const COL = '1.2fr 120px 110px 150px 1.5fr 150px 85px 100px'
-const HEADS = ['Buyer Name', 'Contact Person', 'Phone', 'Email', 'Address', 'GSTIN', 'Status', 'Actions']
+const COL = '1.8fr 160px 2fr 160px 100px 100px'
+const HEADS = ['Buyer Name', 'Tax reg No', 'Address', 'Contact Details', 'Status', 'Actions']
 
 export default function BuyerMaster() {
   const [buyers, setBuyers] = useState(initialData)
@@ -48,15 +43,14 @@ export default function BuyerMaster() {
 
   const filtered = buyers.filter(b =>
     b.name.toLowerCase().includes(search.toLowerCase()) ||
-    b.city.toLowerCase().includes(search.toLowerCase()) ||
-    b.contactPerson.toLowerCase().includes(search.toLowerCase()) ||
-    b.gstin.toLowerCase().includes(search.toLowerCase())
+    (b.taxRegNo || '').toLowerCase().includes(search.toLowerCase()) ||
+    (b.contactDetails || '').toLowerCase().includes(search.toLowerCase())
   )
 
   const openAdd = () => { setEditId(null); setForm(emptyForm); setDialog(true) }
   const openEdit = (b) => { setEditId(b.id); setForm({ ...b }); setDialog(true) }
   const handleSave = () => {
-    if (!form.name || !form.phone) return
+    if (!form.name || !form.contactDetails) return
     if (editId) {
       setBuyers(prev => prev.map(b => b.id === editId ? { ...form, id: editId } : b))
     } else {
@@ -105,7 +99,7 @@ export default function BuyerMaster() {
       {/* Search */}
       <Card sx={{ mb: 2.5 }}>
         <CardContent sx={{ p: 2 }}>
-          <TextField fullWidth size="small" placeholder="Search by buyer name, contact, city, gstin..."
+          <TextField fullWidth size="small" placeholder="Search by buyer name, tax reg no, contact details..."
             value={search} onChange={e => setSearch(e.target.value)}
             InputProps={{ startAdornment: <InputAdornment position="start"><SearchRoundedIcon sx={{ color: '#9CA3AF', fontSize: 18 }} /></InputAdornment> }} />
         </CardContent>
@@ -128,21 +122,16 @@ export default function BuyerMaster() {
           <Stack divider={<Divider />}>
             {filtered.map(b => (
               <Box key={b.id} sx={{ display: 'grid', gridTemplateColumns: COL, px: 2, py: 1.5, alignItems: 'center', '&:hover': { bgcolor: 'rgba(108,99,255,0.03)' }, transition: 'background 0.15s' }}>
-                <Box>
-                  <Typography variant="body2" sx={{ fontWeight: 700, color: 'text.primary' }}>{b.name}</Typography>
-                  <Typography variant="caption" sx={{ color: 'text.secondary' }}>{b.city}, {b.state}</Typography>
-                </Box>
-                <Typography variant="caption" sx={{ color: 'text.secondary' }}>{b.contactPerson}</Typography>
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                  <PhoneRoundedIcon sx={{ fontSize: 13, color: '#9CA3AF' }} />
-                  <Typography variant="caption" sx={{ color: 'text.secondary' }}>{b.phone}</Typography>
-                </Box>
-                <Typography variant="caption" sx={{ color: 'primary.main', fontWeight: 600 }} noWrap>{b.email}</Typography>
+                <Typography variant="body2" sx={{ fontWeight: 700, color: 'text.primary' }}>{b.name}</Typography>
+                <Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 600, fontFamily: 'monospace' }}>{b.taxRegNo || '—'}</Typography>
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
                   <LocationOnRoundedIcon sx={{ fontSize: 13, color: '#9CA3AF' }} />
                   <Typography variant="caption" sx={{ color: 'text.secondary' }} noWrap>{b.address}</Typography>
                 </Box>
-                <Typography variant="caption" sx={{ color: 'text.primary', fontWeight: 600 }}>{b.gstin || '—'}</Typography>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                  <PhoneRoundedIcon sx={{ fontSize: 13, color: '#9CA3AF' }} />
+                  <Typography variant="caption" sx={{ color: 'text.secondary' }} noWrap>{b.contactDetails}</Typography>
+                </Box>
                 <Chip label={b.status} size="small" color={statusColor[b.status]} variant="outlined" sx={{ fontWeight: 600, fontSize: '0.65rem', height: 22, width: 'fit-content' }} />
                 <Box sx={{ display: 'flex', gap: 0.5 }}>
                   <Tooltip title="Edit"><IconButton size="small" sx={{ color: 'primary.main' }} onClick={() => openEdit(b)}><EditRoundedIcon fontSize="small" /></IconButton></Tooltip>
@@ -165,39 +154,19 @@ export default function BuyerMaster() {
           <Grid container spacing={2}>
             <Grid size={12}>
               <Typography variant="caption" sx={{ fontWeight: 600, color: '#374151', mb: 0.5, display: 'block' }}>Buyer Name / Company Name *</Typography>
-              <TextField fullWidth size="small" value={form.name} onChange={f('name')} />
+              <TextField fullWidth size="small" value={form.name} onChange={f('name')} placeholder="e.g. Ramesh Traders" />
             </Grid>
             <Grid size={{ xs: 12, sm: 6 }}>
-              <Typography variant="caption" sx={{ fontWeight: 600, color: '#374151', mb: 0.5, display: 'block' }}>Contact Person</Typography>
-              <TextField fullWidth size="small" value={form.contactPerson} onChange={f('contactPerson')} />
+              <Typography variant="caption" sx={{ fontWeight: 600, color: '#374151', mb: 0.5, display: 'block' }}>Tax reg No</Typography>
+              <TextField fullWidth size="small" value={form.taxRegNo} onChange={f('taxRegNo')} placeholder="e.g. 19AAACR1234A1Z1" />
             </Grid>
             <Grid size={{ xs: 12, sm: 6 }}>
-              <Typography variant="caption" sx={{ fontWeight: 600, color: '#374151', mb: 0.5, display: 'block' }}>Phone *</Typography>
-              <TextField fullWidth size="small" value={form.phone} onChange={f('phone')} />
-            </Grid>
-            <Grid size={{ xs: 12, sm: 6 }}>
-              <Typography variant="caption" sx={{ fontWeight: 600, color: '#374151', mb: 0.5, display: 'block' }}>Email</Typography>
-              <TextField fullWidth size="small" type="email" value={form.email} onChange={f('email')} />
-            </Grid>
-            <Grid size={{ xs: 12, sm: 6 }}>
-              <Typography variant="caption" sx={{ fontWeight: 600, color: '#374151', mb: 0.5, display: 'block' }}>GSTIN</Typography>
-              <TextField fullWidth size="small" value={form.gstin} onChange={f('gstin')} />
-            </Grid>
-            <Grid size={{ xs: 12, sm: 6 }}>
-              <Typography variant="caption" sx={{ fontWeight: 600, color: '#374151', mb: 0.5, display: 'block' }}>PAN No</Typography>
-              <TextField fullWidth size="small" value={form.pan} onChange={f('pan')} />
-            </Grid>
-            <Grid size={{ xs: 12, sm: 6 }}>
-              <Typography variant="caption" sx={{ fontWeight: 600, color: '#374151', mb: 0.5, display: 'block' }}>City</Typography>
-              <TextField fullWidth size="small" value={form.city} onChange={f('city')} />
-            </Grid>
-            <Grid size={{ xs: 12, sm: 6 }}>
-              <Typography variant="caption" sx={{ fontWeight: 600, color: '#374151', mb: 0.5, display: 'block' }}>State</Typography>
-              <TextField fullWidth size="small" value={form.state} onChange={f('state')} />
+              <Typography variant="caption" sx={{ fontWeight: 600, color: '#374151', mb: 0.5, display: 'block' }}>Contact Details *</Typography>
+              <TextField fullWidth size="small" value={form.contactDetails} onChange={f('contactDetails')} placeholder="e.g. Phone / Email" />
             </Grid>
             <Grid size={12}>
               <Typography variant="caption" sx={{ fontWeight: 600, color: '#374151', mb: 0.5, display: 'block' }}>Address</Typography>
-              <TextField fullWidth size="small" multiline rows={2} value={form.address} onChange={f('address')} />
+              <TextField fullWidth size="small" multiline rows={2} value={form.address} onChange={f('address')} placeholder="e.g. 12 Bara Bazar St, Kolkata" />
             </Grid>
             <Grid size={12}>
               <Typography variant="caption" sx={{ fontWeight: 600, color: '#374151', mb: 0.75, display: 'block' }}>Status</Typography>

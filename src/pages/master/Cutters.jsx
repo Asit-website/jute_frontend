@@ -3,10 +3,10 @@ import ContentCutRoundedIcon from '@mui/icons-material/ContentCutRounded'
 import VendorPage from '../../components/VendorPage'
 
 const data = [
-  { id: 1, name: 'Apex Cutting Services', contact: 'Anil Mehta', phone: '9836612345', email: 'anil@apexcut.com', address: '88, Leather Goods Complex', city: 'Kolkata', status: 'Active' },
-  { id: 2, name: 'Precision Die Cutters', contact: 'Vijay Khemka', phone: '9837722334', email: 'vijay@precisiondie.com', address: '12, Industrial Sector B', city: 'Howrah', status: 'Active' },
-  { id: 3, name: 'Quality Slitting Works', contact: 'Rajesh Sen', phone: '9838833445', email: 'rajesh@qualityslitting.in', address: '4, Mill Area Rd', city: 'Serampore', status: 'Active' },
-  { id: 4, name: 'Eastern Die & Cut', contact: 'Vikram Roy', phone: '9839944556', email: 'vikram@easterndie.com', address: '19, G.T. Road', city: 'Asansol', status: 'Inactive' },
+  { id: 1, name: 'Apex Cutting Services', gstin: '19AAACA8899F1Z6', address: '88, Leather Goods Complex, Kolkata', contactNo: '9836612345 / anil@apexcut.com', status: 'Active' },
+  { id: 2, name: 'Precision Die Cutters', gstin: '19AAACP7788G1Z7', address: '12, Industrial Sector B, Howrah', contactNo: '9837722334 / vijay@precisiondie.com', status: 'Active' },
+  { id: 3, name: 'Quality Slitting Works', gstin: '19AAACQ6677H1Z8', address: '4, Mill Area Rd, Serampore', contactNo: '9838833445 / rajesh@qualityslitting.in', status: 'Active' },
+  { id: 4, name: 'Eastern Die & Cut', gstin: '19AAACE5566I1Z9', address: '19, G.T. Road, Asansol', contactNo: '9839944556 / vikram@easterndie.com', status: 'Inactive' },
 ]
 
 export default function Cutters() {

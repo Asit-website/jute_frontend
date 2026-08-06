@@ -30,28 +30,34 @@ import ContentCutRoundedIcon from '@mui/icons-material/ContentCutRounded'
 import DoneAllRoundedIcon from '@mui/icons-material/DoneAllRounded'
 import ChevronLeftRoundedIcon from '@mui/icons-material/ChevronLeftRounded'
 import ChevronRightRoundedIcon from '@mui/icons-material/ChevronRightRounded'
+import PrecisionManufacturingRoundedIcon from '@mui/icons-material/PrecisionManufacturingRounded'
 
 const navItems = [
   { label: 'Dashboard',              icon: <DashboardRoundedIcon />,   path: '/dashboard'        },
-  { label: 'Customer Order',         icon: <PeopleAltRoundedIcon />,   path: '/customer-order'   },
-  { label: 'Raw Material Inventory', icon: <WarehouseRoundedIcon />,   path: '/raw-material'     },
+  { label: 'PI Entry',        path: '/workflow/pi-entry',        icon: <CategoryRoundedIcon /> },
+  { label: 'PO Raw Material', path: '/workflow/po-raw-material', icon: <ShoppingCartCheckoutRoundedIcon /> },
+  { label: 'RM Stock IN',     path: '/workflow/rm-stock-in',     icon: <WarehouseRoundedIcon /> },
+  { label: 'Cutting',         path: '/workflow/cutting',         icon: <ContentCutRoundedIcon /> },
+  { label: 'Printer Job',     path: '/workflow/printer-job',     icon: <PrintRoundedIcon /> },
+  { label: 'Stitcher Job',    path: '/workflow/stitcher-job',    icon: <HandymanRoundedIcon /> },
+  { label: 'Finishing',       path: '/workflow/finishing',       icon: <DoneAllRoundedIcon /> },
+  { label: 'Shipment',        path: '/workflow/shipment',        icon: <AgricultureRoundedIcon /> },
   {
     label: 'Master',
     icon: <CategoryRoundedIcon />,
     children: [
       { label: 'Unit Master',         icon: <ScaleRoundedIcon />,        path: '/master/unit'          },
-      { label: 'Product Master',      icon: <Inventory2RoundedIcon />,   path: '/master/item'          },
-      { label: 'Purchase Item Master', icon: <ShoppingCartCheckoutRoundedIcon />, path: '/master/purchase-item' },
+      { label: 'Raw Material Master', icon: <ShoppingCartCheckoutRoundedIcon />, path: '/master/raw-material-master' },
       { label: 'Buyer Master',        icon: <PeopleAltRoundedIcon />,    path: '/master/buyer'         },
-      { label: 'Jute Sheet Supplier', icon: <AgricultureRoundedIcon />, path: '/master/jute-supplier' },
+      { label: 'Supplier Master',     icon: <AgricultureRoundedIcon />, path: '/master/supplier' },
       { label: 'Cutters',             icon: <ContentCutRoundedIcon />,   path: '/master/cutters'       },
       { label: 'Printers',            icon: <PrintRoundedIcon />,        path: '/master/printers'      },
       { label: 'Fabricators',         icon: <HandymanRoundedIcon />,     path: '/master/fabricators'   },
       { label: 'Finishers',           icon: <DoneAllRoundedIcon />,      path: '/master/finishers'     },
     ],
   },
-  { label: 'Reports',  icon: <BarChartRoundedIcon />,  path: '/reports'  },
-  { label: 'Settings', icon: <SettingsRoundedIcon />,  path: '/settings' },
+  { label: 'Reports',         icon: <BarChartRoundedIcon />,      path: '/reports'  },
+  { label: 'Settings',        icon: <SettingsRoundedIcon />,      path: '/settings' },
 ]
 
 // ── Nav item styles ────────────────────────────────────────
@@ -83,15 +89,15 @@ export default function Layout() {
   const location  = useLocation()
   const { user, logout } = useAuth()
 
-  const masterPaths = navItems.find(i => i.label === 'Master')?.children?.map(c => c.path) || []
+  const [openGroups, setOpenGroups] = useState({})
 
-  // Initialize open if already on a master child route
-  const [masterOpen, setMasterOpen] = useState(() => masterPaths.includes(location.pathname))
-
-  // Auto-open Master when navigating to a child route via URL
+  // Auto-open groups when navigating to a child route
   React.useEffect(() => {
-    if (masterPaths.includes(location.pathname) && !collapsed) {
-      setMasterOpen(true)
+    if (!collapsed) {
+      const activeGroup = navItems.find(i => i.children?.some(c => c.path === location.pathname))
+      if (activeGroup) {
+        setOpenGroups(prev => ({ ...prev, [activeGroup.label]: true }))
+      }
     }
   }, [location.pathname, collapsed])
 
@@ -128,20 +134,21 @@ export default function Layout() {
       {/* Nav Items */}
       <List sx={{ px: 1.5, flex: 1, overflow: 'auto' }}>
         {navItems.map((item) => {
-          // ── Parent with children (Master) ──
+          // ── Parent with children ──
           if (item.children) {
             const isGroupActive = item.children.some(c => location.pathname === c.path)
+            const isOpen = !!openGroups[item.label]
             return (
               <Box key={item.label}>
                 <ListItem disablePadding sx={{ mb: 0.5 }}>
                   <Tooltip title={collapsed ? item.label : ""} placement="right">
                     <ListItemButton
-                      onClick={() => setMasterOpen(o => !o)}
+                      onClick={() => setOpenGroups(prev => ({ ...prev, [item.label]: !prev[item.label] }))}
                       sx={itemSx(isGroupActive, collapsed)}
                     >
                       <ListItemIcon sx={iconSx(isGroupActive, collapsed)}>{item.icon}</ListItemIcon>
                       {!collapsed && <ListItemText primary={item.label} sx={textSx(isGroupActive)} />}
-                      {!collapsed && (masterOpen
+                      {!collapsed && (isOpen
                         ? <ExpandLessRoundedIcon sx={{ color: 'rgba(255,255,255,0.4)', fontSize: 18 }} />
                         : <ExpandMoreRoundedIcon sx={{ color: 'rgba(255,255,255,0.4)', fontSize: 18 }} />
                       )}
@@ -150,7 +157,7 @@ export default function Layout() {
                 </ListItem>
 
                 {/* Sub-items */}
-                <Collapse in={masterOpen && !collapsed} timeout="auto" unmountOnExit>
+                <Collapse in={isOpen && !collapsed} timeout="auto" unmountOnExit>
                   <List disablePadding sx={{ pl: 1.5, mb: 0.5 }}>
                     {item.children.map((child) => {
                       const childActive = location.pathname === child.path

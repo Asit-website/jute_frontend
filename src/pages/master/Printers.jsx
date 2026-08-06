@@ -3,10 +3,10 @@ import PrintRoundedIcon from '@mui/icons-material/PrintRounded'
 import VendorPage from '../../components/VendorPage'
 
 const data = [
-  { id: 1, name: 'Kolkata Color Press',  contact: 'Deepak Roy',    phone: '9832109876', email: 'deepak@kcpress.com',    address: '5, Press Colony',       city: 'Kolkata',    status: 'Active'   },
-  { id: 2, name: 'PrintMaster India',    contact: 'Vikas Sharma',  phone: '9754321098', email: 'vikas@printmaster.in',  address: '17, Graphics Zone',     city: 'Howrah',     status: 'Active'   },
-  { id: 3, name: 'Flex & Print Works',   contact: 'Sanjay Gupta',  phone: '9612345678', email: 'sanjay@flexprint.com',  address: '30, Industrial Estate', city: 'Durgapur',   status: 'Active'   },
-  { id: 4, name: 'Digital Ink Studio',   contact: 'Priya Nair',    phone: '9501234567', email: 'priya@digitalink.co',   address: '9, Offset Lane',        city: 'Asansol',    status: 'Inactive' },
+  { id: 1, name: 'Kolkata Color Press',  gstin: '19AAACK1122J1ZA', address: '5, Press Colony, Kolkata', contactNo: '9832109876 / deepak@kcpress.com', status: 'Active'   },
+  { id: 2, name: 'PrintMaster India',    gstin: '19AAACP2233K1ZB', address: '17, Graphics Zone, Howrah', contactNo: '9754321098 / vikas@printmaster.in', status: 'Active'   },
+  { id: 3, name: 'Flex & Print Works',   gstin: '19AAACF3344L1ZC', address: '30, Industrial Estate, Durgapur', contactNo: '9612345678 / sanjay@flexprint.com', status: 'Active'   },
+  { id: 4, name: 'Digital Ink Studio',   gstin: '19AAACD4455M1ZD', address: '9, Offset Lane, Asansol', contactNo: '9501234567 / priya@digitalink.co',   status: 'Inactive' },
 ]
 
 export default function Printers() {
