@@ -1,8 +1,8 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import {
   Box, Typography, Card, CardContent, Button, Chip, IconButton,
   TextField, InputAdornment, Dialog, DialogTitle, DialogContent,
-  DialogActions, Grid, Stack, Divider, Tooltip, Avatar,
+  DialogActions, Grid, Stack, Divider, Tooltip, Avatar, TablePagination, Alert
 } from '@mui/material'
 import AddRoundedIcon from '@mui/icons-material/AddRounded'
 import SearchRoundedIcon from '@mui/icons-material/SearchRounded'
@@ -11,6 +11,7 @@ import DeleteRoundedIcon from '@mui/icons-material/DeleteRounded'
 import PhoneRoundedIcon from '@mui/icons-material/PhoneRounded'
 import LocationOnRoundedIcon from '@mui/icons-material/LocationOnRounded'
 import PeopleAltRoundedIcon from '@mui/icons-material/PeopleAltRounded'
+import { getMasters, saveMaster, deleteMaster } from '../workflow/mockDb'
 
 const statusColor = { Active: 'success', Inactive: 'error' }
 
@@ -22,43 +23,79 @@ const emptyForm = {
   status: 'Active',
 }
 
-const initialData = [
-  { id: 1, name: 'Ramesh Traders', taxRegNo: '19AAACR1234A1Z1', address: '12 Bara Bazar St, Kolkata, West Bengal', contactDetails: '9830012345 / ramesh@trades.com', status: 'Active' },
-  { id: 2, name: 'Bengal Jute Co.', taxRegNo: '19AAACB4567B1Z2', address: '45 Salt Lake Sec V, Kolkata, West Bengal', contactDetails: '9831122334 / subhas@bengaljute.com', status: 'Active' },
-  { id: 3, name: 'Kolkata Mills', taxRegNo: '19AAACK7890C1Z3', address: '78 Gariahat Rd, Kolkata, West Bengal', contactDetails: '9832233445 / amit@kolkatamills.co.in', status: 'Active' },
-  { id: 4, name: 'Agro Fibers Ltd.', taxRegNo: '19AAACA1122D1Z4', address: '121 Belgharia Rd, Howrah, West Bengal', contactDetails: '9833344556 / info@agrofibers.com', status: 'Active' },
-  { id: 5, name: 'Sona Traders', taxRegNo: '19AAACS3344E1Z5', address: '56 Liluah Chowk, Howrah, West Bengal', contactDetails: '9834455667 / sanjay@sonatraders.com', status: 'Inactive' },
-]
-
 const COL = '1.8fr 160px 2fr 160px 100px 100px'
 const HEADS = ['Buyer Name', 'Tax reg No', 'Address', 'Contact Details', 'Status', 'Actions']
 
 export default function BuyerMaster() {
-  const [buyers, setBuyers] = useState(initialData)
+  const [buyers, setBuyers] = useState([])
   const [search, setSearch] = useState('')
   const [dialog, setDialog] = useState(false)
   const [editId, setEditId] = useState(null)
   const [form, setForm] = useState(emptyForm)
   const [deleteId, setDeleteId] = useState(null)
+  const [submitted, setSubmitted] = useState(false)
+  const [page, setPage] = useState(0)
+  const [rowsPerPage, setRowsPerPage] = useState(20)
+  const [validationError, setValidationError] = useState('')
+
+  useEffect(() => {
+    getMasters('buyers').then(data => setBuyers(data)).catch(err => console.error(err))
+  }, [])
+
+  useEffect(() => {
+    setPage(0)
+  }, [search])
 
   const filtered = buyers.filter(b =>
-    b.name.toLowerCase().includes(search.toLowerCase()) ||
+    (b.name || '').toLowerCase().includes(search.toLowerCase()) ||
     (b.taxRegNo || '').toLowerCase().includes(search.toLowerCase()) ||
     (b.contactDetails || '').toLowerCase().includes(search.toLowerCase())
-  )
+  ).sort((a, b) => (a.name || '').localeCompare(b.name || ''))
 
-  const openAdd = () => { setEditId(null); setForm(emptyForm); setDialog(true) }
-  const openEdit = (b) => { setEditId(b.id); setForm({ ...b }); setDialog(true) }
+  const openAdd = () => { setSubmitted(false); setEditId(null); setValidationError(''); setForm(emptyForm); setDialog(true) }
+  const openEdit = (b) => { setSubmitted(false); setEditId(b.id); setValidationError(''); setForm({ ...b }); setDialog(true) }
+
   const handleSave = () => {
+    setSubmitted(true)
+    setValidationError('')
     if (!form.name || !form.contactDetails) return
-    if (editId) {
-      setBuyers(prev => prev.map(b => b.id === editId ? { ...form, id: editId } : b))
-    } else {
-      setBuyers(prev => [...prev, { ...form, id: Date.now() }])
+
+    // Normalize and check for duplicate (ignoring spaces and dots)
+    const normalize = (str) => (str || '').replace(/[\s\.]+/g, '').toLowerCase();
+    const normName = normalize(form.name);
+    const normTaxReg = normalize(form.taxRegNo);
+
+    for (const b of buyers) {
+      if (b.id === editId) continue;
+      if (normalize(b.name) === normName) {
+        setValidationError('Buyer Name can not be same.');
+        return;
+      }
+      if (normTaxReg && normalize(b.taxRegNo) === normTaxReg) {
+        setValidationError('Tax reg No can not be same.');
+        return;
+      }
     }
-    setDialog(false)
+
+    saveMaster('buyers', form)
+      .then(() => getMasters('buyers'))
+      .then(data => {
+        setBuyers(data)
+        setDialog(false)
+      })
+      .catch(err => setValidationError(err.message))
   }
-  const handleDelete = () => { setBuyers(prev => prev.filter(b => b.id !== deleteId)); setDeleteId(null) }
+
+  const handleDelete = () => {
+    if (!deleteId) return
+    deleteMaster('buyers', deleteId)
+      .then(() => getMasters('buyers'))
+      .then(data => {
+        setBuyers(data)
+        setDeleteId(null)
+      })
+      .catch(err => alert(err.message))
+  }
   const f = (k) => (e) => setForm({ ...form, [k]: e.target.value })
 
   return (
@@ -80,22 +117,6 @@ export default function BuyerMaster() {
         </Button>
       </Box>
 
-      {/* Summary Cards */}
-      <Grid container spacing={2} sx={{ mb: 3 }}>
-        {[
-          { label: 'Total Buyers', value: buyers.length, c: '#6C63FF', b: 'rgba(108,99,255,0.08)' },
-          { label: 'Active Buyers', value: buyers.filter(b => b.status === 'Active').length, c: '#00C07F', b: 'rgba(0,192,127,0.08)' },
-          { label: 'Inactive Buyers', value: buyers.filter(b => b.status === 'Inactive').length, c: '#EF4444', b: 'rgba(239,68,68,0.08)' },
-        ].map(s => (
-          <Grid key={s.label} size={{ xs: 6, md: 4 }}>
-            <Card><CardContent sx={{ p: 2.5 }}>
-              <Typography variant="h4" sx={{ fontWeight: 800, color: s.c }}>{s.value}</Typography>
-              <Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 500 }}>{s.label}</Typography>
-            </CardContent></Card>
-          </Grid>
-        ))}
-      </Grid>
-
       {/* Search */}
       <Card sx={{ mb: 2.5 }}>
         <CardContent sx={{ p: 2 }}>
@@ -106,9 +127,9 @@ export default function BuyerMaster() {
       </Card>
 
       {/* Table */}
-      <Card>
+      <Card sx={{ overflowX: 'auto' }}>
         {/* Table Head */}
-        <Box sx={{ display: 'grid', gridTemplateColumns: COL, px: 2, py: 1.25, bgcolor: '#F8F9FC', borderBottom: '1px solid', borderColor: 'divider' }}>
+        <Box className="grid-table-row" sx={{ display: 'grid', gridTemplateColumns: COL, px: 2, py: 1.25, bgcolor: '#F8F9FC', borderBottom: '1px solid', borderColor: 'divider', minWidth: '950px' }}>
           {HEADS.map(h => (
             <Typography key={h} variant="caption" sx={{ fontWeight: 700, color: 'text.secondary', textTransform: 'uppercase', fontSize: '0.65rem', letterSpacing: '0.05em' }}>{h}</Typography>
           ))}
@@ -120,8 +141,8 @@ export default function BuyerMaster() {
           </Box>
         ) : (
           <Stack divider={<Divider />}>
-            {filtered.map(b => (
-              <Box key={b.id} sx={{ display: 'grid', gridTemplateColumns: COL, px: 2, py: 1.5, alignItems: 'center', '&:hover': { bgcolor: 'rgba(108,99,255,0.03)' }, transition: 'background 0.15s' }}>
+            {filtered.slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage).map(b => (
+              <Box key={b.id} className="grid-table-row" sx={{ display: 'grid', gridTemplateColumns: COL, px: 2, py: 1.5, alignItems: 'center', '&:hover': { bgcolor: 'rgba(108,99,255,0.03)' }, transition: 'background 0.15s', minWidth: '950px' }}>
                 <Typography variant="body2" sx={{ fontWeight: 700, color: 'text.primary' }}>{b.name}</Typography>
                 <Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 600, fontFamily: 'monospace' }}>{b.taxRegNo || '—'}</Typography>
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
@@ -141,6 +162,20 @@ export default function BuyerMaster() {
             ))}
           </Stack>
         )}
+        {filtered.length > 20 && (
+          <TablePagination
+            component="div"
+            count={filtered.length}
+            page={page}
+            onPageChange={(e, newPage) => setPage(newPage)}
+            rowsPerPage={rowsPerPage}
+            onRowsPerPageChange={(e) => {
+              setRowsPerPage(parseInt(e.target.value, 10))
+              setPage(0)
+            }}
+            rowsPerPageOptions={[10, 20, 50]}
+          />
+        )}
         <Box sx={{ px: 2, py: 1.5, bgcolor: '#F8F9FC', borderTop: '1px solid', borderColor: 'divider' }}>
           <Typography variant="caption" sx={{ color: 'text.secondary' }}>Showing {filtered.length} of {buyers.length} buyers</Typography>
         </Box>
@@ -151,10 +186,16 @@ export default function BuyerMaster() {
         <DialogTitle sx={{ fontWeight: 800 }}>{editId ? 'Edit Buyer' : 'Add Buyer'}</DialogTitle>
         <Divider />
         <DialogContent sx={{ pt: 2.5 }}>
+          {validationError && (
+            <Alert severity="error" sx={{ mb: 2.5, borderRadius: 2 }}>
+              {validationError}
+            </Alert>
+          )}
           <Grid container spacing={2}>
             <Grid size={12}>
               <Typography variant="caption" sx={{ fontWeight: 600, color: '#374151', mb: 0.5, display: 'block' }}>Buyer Name / Company Name *</Typography>
-              <TextField fullWidth size="small" value={form.name} onChange={f('name')} placeholder="e.g. Ramesh Traders" />
+              <TextField fullWidth size="small" value={form.name} onChange={f('name')} placeholder="e.g. Ramesh Traders"
+                error={submitted && !form.name} helperText={submitted && !form.name ? 'Required' : ''} />
             </Grid>
             <Grid size={{ xs: 12, sm: 6 }}>
               <Typography variant="caption" sx={{ fontWeight: 600, color: '#374151', mb: 0.5, display: 'block' }}>Tax reg No</Typography>
@@ -162,7 +203,8 @@ export default function BuyerMaster() {
             </Grid>
             <Grid size={{ xs: 12, sm: 6 }}>
               <Typography variant="caption" sx={{ fontWeight: 600, color: '#374151', mb: 0.5, display: 'block' }}>Contact Details *</Typography>
-              <TextField fullWidth size="small" value={form.contactDetails} onChange={f('contactDetails')} placeholder="e.g. Phone / Email" />
+              <TextField fullWidth size="small" value={form.contactDetails} onChange={f('contactDetails')} placeholder="e.g. Phone / Email"
+                error={submitted && !form.contactDetails} helperText={submitted && !form.contactDetails ? 'Required' : ''} />
             </Grid>
             <Grid size={12}>
               <Typography variant="caption" sx={{ fontWeight: 600, color: '#374151', mb: 0.5, display: 'block' }}>Address</Typography>

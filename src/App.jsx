@@ -7,6 +7,7 @@ import Dashboard from './pages/Dashboard'
 import Orders from './pages/Orders'
 import Reports from './pages/Reports'
 import Settings from './pages/Settings'
+import UserManagement from './pages/UserManagement'
 
 // Master Pages
 import SupplierMaster from './pages/master/SupplierMaster'
@@ -28,8 +29,12 @@ import StitcherJob from './pages/workflow/StitcherJob'
 import FinishingPacking from './pages/workflow/FinishingPacking'
 import Shipment from './pages/workflow/Shipment'
 
+import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider'
+import { AdapterDayjs } from '@mui/x-date-pickers/AdapterDayjs'
+
 function App() {
   return (
+    <LocalizationProvider dateAdapter={AdapterDayjs}>
     <Routes>
       {/* Public Route */}
       <Route path="/login" element={<Login />} />
@@ -67,13 +72,16 @@ function App() {
         <Route path="workflow/finishing" element={<FinishingPacking />} />
         <Route path="workflow/shipment" element={<Shipment />} />
 
-        <Route path="reports" element={<Reports />} />
+        <Route path="reports" element={<Navigate to="/reports/po-due" replace />} />
+        <Route path="reports/:reportKey" element={<Reports />} />
         <Route path="settings" element={<Settings />} />
+        <Route path="users" element={<UserManagement />} />
       </Route>
 
       {/* Catch all */}
       <Route path="*" element={<Navigate to="/login" replace />} />
     </Routes>
+    </LocalizationProvider>
   )
 }
 

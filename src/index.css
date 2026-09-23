@@ -76,3 +76,11 @@ body {
 .page-enter {
   animation: fadeInUp 0.4s ease forwards;
 }
+
+/* Prevent CSS Grid cell overflow */
+.grid-table-row > * {
+  min-width: 0;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+  padding-right: 8px;
+}

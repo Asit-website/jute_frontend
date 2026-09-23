@@ -1,8 +1,8 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import {
   Box, Typography, Card, CardContent, Button, Chip, IconButton,
   TextField, InputAdornment, Dialog, DialogTitle, DialogContent,
-  DialogActions, Grid, Stack, Divider, Tooltip, Avatar,
+  DialogActions, Grid, Stack, Divider, Tooltip, Avatar, TablePagination, Alert
 } from '@mui/material'
 import AddRoundedIcon from '@mui/icons-material/AddRounded'
 import SearchRoundedIcon from '@mui/icons-material/SearchRounded'
@@ -10,6 +10,7 @@ import EditRoundedIcon from '@mui/icons-material/EditRounded'
 import DeleteRoundedIcon from '@mui/icons-material/DeleteRounded'
 import PhoneRoundedIcon from '@mui/icons-material/PhoneRounded'
 import LocationOnRoundedIcon from '@mui/icons-material/LocationOnRounded'
+import { getMasters, saveMaster, deleteMaster } from '../pages/workflow/mockDb'
 
 const statusColor = { Active: 'success', Inactive: 'error' }
 
@@ -19,41 +20,87 @@ const COL = '1.5fr 150px 2fr 150px 100px 100px'
 const HEADS = ['Name', 'GSTIN', 'Address', 'Contact No.', 'Status', 'Actions']
 
 export default function VendorPage({ title, subtitle, icon, color, bg, initialData }) {
-  // Normalize initial data key mappings if any
-  const normalizedData = (initialData || []).map(v => ({
-    id: v.id,
-    name: v.name || '',
-    gstin: v.gstin || v.gstNo || '19AAACR1234A1Z1',
-    address: v.address || '',
-    contactNo: v.contactNo || v.phone || v.contact || '',
-    status: v.status || 'Active',
-  }))
+  const typeMap = {
+    'Cutters': 'cutters',
+    'Fabricators': 'fabricators',
+    'Finishers': 'finishers',
+    'Printers': 'printers',
+    'Suppliers': 'suppliers',
+    'Supplier': 'suppliers'
+  }
+  const type = typeMap[title] || 'suppliers'
 
-  const [vendors, setVendors] = useState(normalizedData)
+  const [vendors, setVendors] = useState([])
   const [search, setSearch]   = useState('')
   const [dialog, setDialog]   = useState(false)
   const [editId, setEditId]   = useState(null)
   const [form, setForm]       = useState(emptyForm)
   const [deleteId, setDeleteId] = useState(null)
+  const [submitted, setSubmitted] = useState(false)
+  const [page, setPage] = useState(0)
+  const [rowsPerPage, setRowsPerPage] = useState(20)
+  const [validationError, setValidationError] = useState('')
+
+  const loadData = () => {
+    getMasters(type).then(data => setVendors(data)).catch(err => console.error(err))
+  }
+
+  useEffect(() => {
+    loadData()
+  }, [type])
+
+  useEffect(() => {
+    setPage(0)
+  }, [search])
 
   const filtered = vendors.filter(v =>
-    v.name.toLowerCase().includes(search.toLowerCase()) ||
+    (v.name || '').toLowerCase().includes(search.toLowerCase()) ||
     (v.gstin || '').toLowerCase().includes(search.toLowerCase()) ||
     (v.contactNo || '').toLowerCase().includes(search.toLowerCase())
-  )
+  ).sort((a, b) => (a.name || '').localeCompare(b.name || ''))
 
-  const openAdd  = () => { setEditId(null); setForm(emptyForm); setDialog(true) }
-  const openEdit = (v) => { setEditId(v.id); setForm({ ...v }); setDialog(true) }
+  const openAdd  = () => { setSubmitted(false); setEditId(null); setValidationError(''); setForm(emptyForm); setDialog(true) }
+  const openEdit = (v) => { setSubmitted(false); setEditId(v.id); setValidationError(''); setForm({ ...v }); setDialog(true) }
+
   const handleSave = () => {
+    setSubmitted(true)
+    setValidationError('')
     if (!form.name || !form.contactNo) return
-    if (editId) {
-      setVendors(prev => prev.map(v => v.id === editId ? { ...form, id: editId } : v))
-    } else {
-      setVendors(prev => [...prev, { ...form, id: Date.now() }])
+
+    // Normalize and check for duplicate (ignoring spaces and dots)
+    const normalize = (str) => (str || '').replace(/[\s\.]+/g, '').toLowerCase();
+    const normName = normalize(form.name);
+    const normGstin = normalize(form.gstin);
+
+    for (const v of vendors) {
+      if (v.id === editId) continue;
+      if (normalize(v.name) === normName) {
+        setValidationError(`${title.endsWith('Master') ? title.replace(' Master', '') : title} Name can not be same.`);
+        return;
+      }
+      if (normGstin && normalize(v.gstin) === normGstin) {
+        setValidationError('GSTIN can not be same.');
+        return;
+      }
     }
-    setDialog(false)
+
+    saveMaster(type, form)
+      .then(() => {
+        loadData()
+        setDialog(false)
+      })
+      .catch(err => setValidationError(err.message))
   }
-  const handleDelete = () => { setVendors(prev => prev.filter(v => v.id !== deleteId)); setDeleteId(null) }
+
+  const handleDelete = () => {
+    if (!deleteId) return
+    deleteMaster(type, deleteId)
+      .then(() => {
+        loadData()
+        setDeleteId(null)
+      })
+      .catch(err => alert(err.message))
+  }
   const f = (k) => (e) => setForm({ ...form, [k]: e.target.value })
 
   return (
@@ -73,22 +120,6 @@ export default function VendorPage({ title, subtitle, icon, color, bg, initialDa
         </Button>
       </Box>
 
-      {/* Summary Cards */}
-      <Grid container spacing={2} sx={{ mb: 3 }}>
-        {[
-          { label: `Total ${title}`, value: vendors.length,                                    c: color, b: bg           },
-          { label: 'Active',        value: vendors.filter(v => v.status === 'Active').length,  c: '#00C07F', b: 'rgba(0,192,127,0.08)' },
-          { label: 'Inactive',      value: vendors.filter(v => v.status === 'Inactive').length,c: '#EF4444', b: 'rgba(239,68,68,0.08)' },
-        ].map(s => (
-          <Grid key={s.label} size={{ xs: 6, md: 4 }}>
-            <Card><CardContent sx={{ p: 2.5 }}>
-              <Typography variant="h4" sx={{ fontWeight: 800, color: s.c }}>{s.value}</Typography>
-              <Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 500 }}>{s.label}</Typography>
-            </CardContent></Card>
-          </Grid>
-        ))}
-      </Grid>
-
       {/* Search */}
       <Card sx={{ mb: 2.5 }}>
         <CardContent sx={{ p: 2 }}>
@@ -99,9 +130,9 @@ export default function VendorPage({ title, subtitle, icon, color, bg, initialDa
       </Card>
 
       {/* Table */}
-      <Card>
+      <Card sx={{ overflowX: 'auto' }}>
         {/* Table Head */}
-        <Box sx={{ display: 'grid', gridTemplateColumns: COL, px: 2, py: 1.25, bgcolor: '#F8F9FC', borderBottom: '1px solid', borderColor: 'divider' }}>
+        <Box className="grid-table-row" sx={{ display: 'grid', gridTemplateColumns: COL, px: 2, py: 1.25, bgcolor: '#F8F9FC', borderBottom: '1px solid', borderColor: 'divider', minWidth: '950px' }}>
           {HEADS.map(h => (
             <Typography key={h} variant="caption" sx={{ fontWeight: 700, color: 'text.secondary', textTransform: 'uppercase', fontSize: '0.65rem', letterSpacing: '0.05em' }}>{h}</Typography>
           ))}
@@ -113,8 +144,8 @@ export default function VendorPage({ title, subtitle, icon, color, bg, initialDa
           </Box>
         ) : (
           <Stack divider={<Divider />}>
-            {filtered.map(v => (
-              <Box key={v.id} sx={{ display: 'grid', gridTemplateColumns: COL, px: 2, py: 1.5, alignItems: 'center', '&:hover': { bgcolor: 'rgba(108,99,255,0.03)' }, transition: 'background 0.15s' }}>
+            {filtered.slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage).map(v => (
+              <Box key={v.id} className="grid-table-row" sx={{ display: 'grid', gridTemplateColumns: COL, px: 2, py: 1.5, alignItems: 'center', '&:hover': { bgcolor: 'rgba(108,99,255,0.03)' }, transition: 'background 0.15s', minWidth: '950px' }}>
                 <Typography variant="body2" sx={{ fontWeight: 700, color: 'text.primary' }}>{v.name}</Typography>
                 <Typography variant="caption" sx={{ color: 'text.secondary', fontFamily: 'monospace' }}>{v.gstin || '—'}</Typography>
                 <Typography variant="caption" sx={{ color: 'text.secondary' }} noWrap>{v.address || '—'}</Typography>
@@ -131,6 +162,20 @@ export default function VendorPage({ title, subtitle, icon, color, bg, initialDa
             ))}
           </Stack>
         )}
+        {filtered.length > 20 && (
+          <TablePagination
+            component="div"
+            count={filtered.length}
+            page={page}
+            onPageChange={(e, newPage) => setPage(newPage)}
+            rowsPerPage={rowsPerPage}
+            onRowsPerPageChange={(e) => {
+              setRowsPerPage(parseInt(e.target.value, 10))
+              setPage(0)
+            }}
+            rowsPerPageOptions={[10, 20, 50]}
+          />
+        )}
         <Box sx={{ px: 2, py: 1.5, bgcolor: '#F8F9FC', borderTop: '1px solid', borderColor: 'divider' }}>
           <Typography variant="caption" sx={{ color: 'text.secondary' }}>Showing {filtered.length} of {vendors.length} items</Typography>
         </Box>
@@ -141,10 +186,17 @@ export default function VendorPage({ title, subtitle, icon, color, bg, initialDa
         <DialogTitle sx={{ fontWeight: 800 }}>{editId ? `Edit ${title}` : `Add ${title}`}</DialogTitle>
         <Divider />
         <DialogContent sx={{ pt: 2.5 }}>
+          {validationError && (
+            <Alert severity="error" sx={{ mb: 2.5, borderRadius: 2 }}>
+              {validationError}
+            </Alert>
+          )}
           <Grid container spacing={2}>
             <Grid size={12}>
               <Typography variant="caption" sx={{ fontWeight: 600, color: '#374151', mb: 0.5, display: 'block' }}>Name *</Typography>
-              <TextField fullWidth size="small" value={form.name} onChange={f('name')} placeholder="e.g. Apex Jute Works" />
+              <TextField fullWidth size="small" value={form.name} onChange={f('name')} placeholder="e.g. Apex Jute Works"
+                error={submitted && !form.name}
+                helperText={submitted && !form.name ? 'Required' : ''} />
             </Grid>
             <Grid size={{ xs: 12, sm: 6 }}>
               <Typography variant="caption" sx={{ fontWeight: 600, color: '#374151', mb: 0.5, display: 'block' }}>GSTIN</Typography>
@@ -152,7 +204,9 @@ export default function VendorPage({ title, subtitle, icon, color, bg, initialDa
             </Grid>
             <Grid size={{ xs: 12, sm: 6 }}>
               <Typography variant="caption" sx={{ fontWeight: 600, color: '#374151', mb: 0.5, display: 'block' }}>Contact No. *</Typography>
-              <TextField fullWidth size="small" value={form.contactNo} onChange={f('contactNo')} placeholder="e.g. 9830012345" />
+              <TextField fullWidth size="small" value={form.contactNo} onChange={f('contactNo')} placeholder="e.g. 9830012345"
+                error={submitted && !form.contactNo}
+                helperText={submitted && !form.contactNo ? 'Required' : ''} />
             </Grid>
             <Grid size={12}>
               <Typography variant="caption" sx={{ fontWeight: 600, color: '#374151', mb: 0.5, display: 'block' }}>Address</Typography>

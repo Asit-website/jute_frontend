@@ -4,16 +4,14 @@ import { useAuth } from '../../context/AuthContext'
 import {
   Box, Drawer, AppBar, Toolbar, List, ListItem, ListItemButton,
   ListItemIcon, ListItemText, Typography, IconButton, Avatar,
-  Badge, Tooltip, Divider, Collapse, useMediaQuery, useTheme,
+  Badge, Tooltip, Divider, Collapse, useMediaQuery, useTheme, Chip,
 } from '@mui/material'
 import DashboardRoundedIcon from '@mui/icons-material/DashboardRounded'
 import PeopleAltRoundedIcon from '@mui/icons-material/PeopleAltRounded'
 import ShoppingCartRoundedIcon from '@mui/icons-material/ShoppingCartRounded'
 import BarChartRoundedIcon from '@mui/icons-material/BarChartRounded'
 import SettingsRoundedIcon from '@mui/icons-material/SettingsRounded'
-import NotificationsRoundedIcon from '@mui/icons-material/NotificationsRounded'
 import MenuRoundedIcon from '@mui/icons-material/MenuRounded'
-import SearchRoundedIcon from '@mui/icons-material/SearchRounded'
 import GrassRoundedIcon from '@mui/icons-material/GrassRounded'
 import LogoutRoundedIcon from '@mui/icons-material/LogoutRounded'
 import CategoryRoundedIcon from '@mui/icons-material/CategoryRounded'
@@ -30,7 +28,7 @@ import ContentCutRoundedIcon from '@mui/icons-material/ContentCutRounded'
 import DoneAllRoundedIcon from '@mui/icons-material/DoneAllRounded'
 import ChevronLeftRoundedIcon from '@mui/icons-material/ChevronLeftRounded'
 import ChevronRightRoundedIcon from '@mui/icons-material/ChevronRightRounded'
-import PrecisionManufacturingRoundedIcon from '@mui/icons-material/PrecisionManufacturingRounded'
+import AssessmentRoundedIcon from '@mui/icons-material/AssessmentRounded'
 
 const navItems = [
   { label: 'Dashboard',              icon: <DashboardRoundedIcon />,   path: '/dashboard'        },
@@ -56,8 +54,22 @@ const navItems = [
       { label: 'Finishers',           icon: <DoneAllRoundedIcon />,      path: '/master/finishers'     },
     ],
   },
-  { label: 'Reports',         icon: <BarChartRoundedIcon />,      path: '/reports'  },
-  { label: 'Settings',        icon: <SettingsRoundedIcon />,      path: '/settings' },
+  { label: 'User Management', icon: <PeopleAltRoundedIcon />,     path: '/users'     },
+  {
+    label: 'Reports',
+    icon: <BarChartRoundedIcon />,
+    children: [
+      { label: 'PO Incoming Due Report', icon: <AssessmentRoundedIcon />, path: '/reports/po-due' },
+      { label: 'RM Closing Stock', icon: <WarehouseRoundedIcon />, path: '/reports/closing-stock' },
+      { label: 'Cutting Issue due to Fab/Print', icon: <ContentCutRoundedIcon />, path: '/reports/cutting-issue' },
+      { label: 'Printing Issue due to Fabricator', icon: <PrintRoundedIcon />, path: '/reports/print-fabricator' },
+      { label: 'Finished Goods Closing Stock', icon: <Inventory2RoundedIcon />, path: '/reports/finished-goods' },
+      { label: 'Fabricator Wise Due Report', icon: <HandymanRoundedIcon />, path: '/reports/production-pipeline' },
+      { label: 'Buyer Wise Order & Shipment', icon: <PeopleAltRoundedIcon />, path: '/reports/buyer-status' },
+      { label: 'Shipment Schedule (Date-wise)', icon: <AgricultureRoundedIcon />, path: '/reports/shipment-schedule' },
+      { label: 'PI Wise QC Report', icon: <DoneAllRoundedIcon />, path: '/reports/pi-qc' },
+    ],
+  },
 ]
 
 // ── Nav item styles ────────────────────────────────────────
@@ -101,6 +113,36 @@ export default function Layout() {
     }
   }, [location.pathname, collapsed])
 
+  // Route-level permission validation
+  React.useEffect(() => {
+    if (user?.role === 'user') {
+      const path = location.pathname;
+      let requiredPermission = null;
+      if (path.startsWith('/workflow/pi-entry')) requiredPermission = 'PI Entry';
+      else if (path.startsWith('/workflow/po-raw-material')) requiredPermission = 'PO Raw Material';
+      else if (path.startsWith('/workflow/rm-stock-in')) requiredPermission = 'RM Stock IN';
+      else if (path.startsWith('/workflow/cutting')) requiredPermission = 'Cutting';
+      else if (path.startsWith('/workflow/printer-job')) requiredPermission = 'Printer Job';
+      else if (path.startsWith('/workflow/stitcher-job')) requiredPermission = 'Stitcher Job';
+      else if (path.startsWith('/workflow/finishing')) requiredPermission = 'Finishing';
+      else if (path.startsWith('/workflow/shipment')) requiredPermission = 'Shipment';
+      else if (path.startsWith('/master')) requiredPermission = 'Master';
+      else if (path.startsWith('/reports')) requiredPermission = 'Reports';
+      else if (path.startsWith('/users')) requiredPermission = 'User Management';
+
+      if (requiredPermission) {
+        const userPerms = user?.permissions || [];
+        if (!userPerms.includes(requiredPermission)) {
+          navigate('/dashboard');
+        }
+      }
+    } else if (user?.role === 'superadmin') {
+      if (location.pathname !== '/dashboard') {
+        navigate('/dashboard');
+      }
+    }
+  }, [location.pathname, user])
+
   const handleNavClick = (path) => {
     navigate(path)
     if (isMobile) setMobileOpen(false)
@@ -123,8 +165,10 @@ export default function Layout() {
         </Box>
         {!collapsed && (
           <Box>
-            <Typography variant="h6" sx={{ fontWeight: 800, lineHeight: 1, color: '#FFFFFF' }}>JuteCRM</Typography>
-            <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.45)', fontSize: '0.65rem' }}>Industry Management</Typography>
+            <Typography variant="h6" sx={{ fontWeight: 800, lineHeight: 1.2, color: '#FFFFFF', fontSize: '1rem' }}>
+              {user?.role === 'superadmin' ? 'Company Management' : (user?.companyName || 'R Kumar & Company')}
+            </Typography>
+            <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.45)', fontSize: '0.65rem' }}>Inventory</Typography>
           </Box>
         )}
       </Box>
@@ -133,7 +177,22 @@ export default function Layout() {
 
       {/* Nav Items */}
       <List sx={{ px: 1.5, flex: 1, overflow: 'auto' }}>
-        {navItems.map((item) => {
+        {navItems.filter(item => {
+          if (user?.role === 'superadmin') {
+            return item.label === 'Dashboard';
+          }
+          if (item.label === 'User Management') {
+            return user?.role === 'admin';
+          }
+          if (user?.role === 'admin') {
+            return true;
+          }
+          if (item.label === 'Dashboard') {
+            return true;
+          }
+          const userPerms = user?.permissions || [];
+          return userPerms.includes(item.label);
+        }).map((item) => {
           // ── Parent with children ──
           if (item.children) {
             const isGroupActive = item.children.some(c => location.pathname === c.path)
@@ -202,12 +261,13 @@ export default function Layout() {
 
           // ── Regular item ──
           const active = location.pathname === item.path
+          const labelText = (user?.role === 'superadmin' && item.label === 'Dashboard') ? 'Company' : item.label;
           return (
-            <ListItem key={item.label} disablePadding sx={{ mb: 0.5 }}>
-              <Tooltip title={collapsed ? item.label : ""} placement="right">
+            <ListItem key={labelText} disablePadding sx={{ mb: 0.5 }}>
+              <Tooltip title={collapsed ? labelText : ""} placement="right">
                 <ListItemButton onClick={() => handleNavClick(item.path)} sx={itemSx(active, collapsed)}>
                   <ListItemIcon sx={iconSx(active, collapsed)}>{item.icon}</ListItemIcon>
-                  {!collapsed && <ListItemText primary={item.label} sx={textSx(active)} />}
+                  {!collapsed && <ListItemText primary={labelText} sx={textSx(active)} />}
                   {active && !collapsed && <Box sx={{ width: 6, height: 6, borderRadius: '50%', bgcolor: '#6C63FF' }} />}
                 </ListItemButton>
               </Tooltip>
@@ -310,15 +370,7 @@ export default function Layout() {
             </IconButton>
 
             <Box sx={{ flex: 1 }} />
-            
-            <Tooltip title="Search">
-              <IconButton sx={{ color: 'text.secondary' }}><SearchRoundedIcon /></IconButton>
-            </Tooltip>
-            <Tooltip title="Notifications">
-              <IconButton sx={{ color: 'text.secondary' }}>
-                <Badge badgeContent={3} color="error"><NotificationsRoundedIcon /></Badge>
-              </IconButton>
-            </Tooltip>
+
             <Avatar sx={{ width: 34, height: 34, ml: 0.5, background: 'linear-gradient(135deg, #6C63FF, #FF6584)', fontSize: '0.75rem', fontWeight: 700, cursor: 'pointer' }}>
               {user?.name?.charAt(0) || 'J'}
             </Avatar>

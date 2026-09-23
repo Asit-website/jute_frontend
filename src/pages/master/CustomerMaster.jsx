@@ -1,8 +1,8 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import {
   Box, Typography, Card, CardContent, Button, Chip, IconButton,
   TextField, InputAdornment, Dialog, DialogTitle, DialogContent,
-  DialogActions, Grid, Stack, Divider, Tooltip, Avatar, MenuItem,
+  DialogActions, Grid, Stack, Divider, Tooltip, Avatar, MenuItem, TablePagination,
 } from '@mui/material'
 import AddRoundedIcon from '@mui/icons-material/AddRounded'
 import SearchRoundedIcon from '@mui/icons-material/SearchRounded'
@@ -11,6 +11,7 @@ import DeleteRoundedIcon from '@mui/icons-material/DeleteRounded'
 import PhoneRoundedIcon from '@mui/icons-material/PhoneRounded'
 import LocationOnRoundedIcon from '@mui/icons-material/LocationOnRounded'
 import PeopleAltRoundedIcon from '@mui/icons-material/PeopleAltRounded'
+import { getMasters, saveMaster, deleteMaster } from '../workflow/mockDb'
 
 const statusColor = { Active: 'success', Inactive: 'error' }
 
@@ -27,44 +28,60 @@ const emptyForm = {
   status: 'Active',
 }
 
-const initialData = [
-  { id: 1, name: 'Ramesh Traders', contactPerson: 'Ramesh Shah', phone: '9830012345', email: 'ramesh@trades.com', address: '12 Bara Bazar St', city: 'Kolkata', state: 'West Bengal', gstin: '19AAACR1234A1Z1', pan: 'AAACR1234A', status: 'Active' },
-  { id: 2, name: 'Bengal Jute Co.', contactPerson: 'Subhas Bose', phone: '9831122334', email: 'subhas@bengaljute.com', address: '45 Salt Lake Sec V', city: 'Kolkata', state: 'West Bengal', gstin: '19AAACB4567B1Z2', pan: 'AAACB4567B', status: 'Active' },
-  { id: 3, name: 'Kolkata Mills', contactPerson: 'Amit Sen', phone: '9832233445', email: 'amit@kolkatamills.co.in', address: '78 Gariahat Rd', city: 'Kolkata', state: 'West Bengal', gstin: '19AAACK7890C1Z3', pan: 'AAACK7890C', status: 'Active' },
-  { id: 4, name: 'Agro Fibers Ltd.', contactPerson: 'Pradip Roy', phone: '9833344556', email: 'pradip@agrofibers.com', address: '121 Belgharia Rd', city: 'Howrah', state: 'West Bengal', gstin: '19AAACA1122D1Z4', pan: 'AAACA1122D', status: 'Active' },
-  { id: 5, name: 'Sona Traders', contactPerson: 'Sanjay Dutt', phone: '9834455667', email: 'sanjay@sonatraders.com', address: '56 Liluah Chowk', city: 'Howrah', state: 'West Bengal', gstin: '19AAACS3344E1Z5', pan: 'AAACS3344E', status: 'Inactive' },
-]
-
 const COL = '1fr 120px 130px 140px 1fr 100px 90px 100px'
 const HEADS = ['Customer Name', 'Contact Person', 'Phone', 'Email', 'Address', 'GSTIN', 'Status', 'Actions']
 
 export default function CustomerMaster() {
-  const [customers, setCustomers] = useState(initialData)
+  const [customers, setCustomers] = useState([])
   const [search, setSearch] = useState('')
   const [dialog, setDialog] = useState(false)
   const [editId, setEditId] = useState(null)
   const [form, setForm] = useState(emptyForm)
   const [deleteId, setDeleteId] = useState(null)
+  const [submitted, setSubmitted] = useState(false)
+  const [page, setPage] = useState(0)
+  const [rowsPerPage, setRowsPerPage] = useState(20)
+
+  useEffect(() => {
+    getMasters('customers').then(data => setCustomers(data)).catch(err => console.error(err))
+  }, [])
+
+  useEffect(() => {
+    setPage(0)
+  }, [search])
 
   const filtered = customers.filter(c =>
-    c.name.toLowerCase().includes(search.toLowerCase()) ||
-    c.city.toLowerCase().includes(search.toLowerCase()) ||
-    c.contactPerson.toLowerCase().includes(search.toLowerCase()) ||
-    c.gstin.toLowerCase().includes(search.toLowerCase())
+    (c.name || '').toLowerCase().includes(search.toLowerCase()) ||
+    (c.city || '').toLowerCase().includes(search.toLowerCase()) ||
+    (c.contactPerson || '').toLowerCase().includes(search.toLowerCase()) ||
+    (c.gstin || '').toLowerCase().includes(search.toLowerCase())
   )
 
-  const openAdd = () => { setEditId(null); setForm(emptyForm); setDialog(true) }
-  const openEdit = (c) => { setEditId(c.id); setForm({ ...c }); setDialog(true) }
+  const openAdd = () => { setSubmitted(false); setEditId(null); setForm(emptyForm); setDialog(true) }
+  const openEdit = (c) => { setSubmitted(false); setEditId(c.id); setForm({ ...c }); setDialog(true) }
+
   const handleSave = () => {
+    setSubmitted(true)
     if (!form.name || !form.phone) return
-    if (editId) {
-      setCustomers(prev => prev.map(c => c.id === editId ? { ...form, id: editId } : c))
-    } else {
-      setCustomers(prev => [...prev, { ...form, id: Date.now() }])
-    }
-    setDialog(false)
+    saveMaster('customers', form)
+      .then(() => getMasters('customers'))
+      .then(data => {
+        setCustomers(data)
+        setDialog(false)
+      })
+      .catch(err => alert(err.message))
   }
-  const handleDelete = () => { setCustomers(prev => prev.filter(c => c.id !== deleteId)); setDeleteId(null) }
+
+  const handleDelete = () => {
+    if (!deleteId) return
+    deleteMaster('customers', deleteId)
+      .then(() => getMasters('customers'))
+      .then(data => {
+        setCustomers(data)
+        setDeleteId(null)
+      })
+      .catch(err => alert(err.message))
+  }
   const f = (k) => (e) => setForm({ ...form, [k]: e.target.value })
 
   return (
@@ -86,22 +103,6 @@ export default function CustomerMaster() {
         </Button>
       </Box>
 
-      {/* Summary Cards */}
-      <Grid container spacing={2} sx={{ mb: 3 }}>
-        {[
-          { label: 'Total Customers', value: customers.length, c: '#6C63FF', b: 'rgba(108,99,255,0.08)' },
-          { label: 'Active Customers', value: customers.filter(c => c.status === 'Active').length, c: '#00C07F', b: 'rgba(0,192,127,0.08)' },
-          { label: 'Inactive Customers', value: customers.filter(c => c.status === 'Inactive').length, c: '#EF4444', b: 'rgba(239,68,68,0.08)' },
-        ].map(s => (
-          <Grid key={s.label} size={{ xs: 6, md: 4 }}>
-            <Card><CardContent sx={{ p: 2.5 }}>
-              <Typography variant="h4" sx={{ fontWeight: 800, color: s.c }}>{s.value}</Typography>
-              <Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 500 }}>{s.label}</Typography>
-            </CardContent></Card>
-          </Grid>
-        ))}
-      </Grid>
-
       {/* Search */}
       <Card sx={{ mb: 2.5 }}>
         <CardContent sx={{ p: 2 }}>
@@ -112,9 +113,9 @@ export default function CustomerMaster() {
       </Card>
 
       {/* Table */}
-      <Card>
+      <Card sx={{ overflowX: 'auto' }}>
         {/* Table Head */}
-        <Box sx={{ display: 'grid', gridTemplateColumns: COL, px: 2, py: 1.25, bgcolor: '#F8F9FC', borderBottom: '1px solid', borderColor: 'divider' }}>
+        <Box className="grid-table-row" sx={{ display: 'grid', gridTemplateColumns: COL, px: 2, py: 1.25, bgcolor: '#F8F9FC', borderBottom: '1px solid', borderColor: 'divider', minWidth: '950px' }}>
           {HEADS.map(h => (
             <Typography key={h} variant="caption" sx={{ fontWeight: 700, color: 'text.secondary', textTransform: 'uppercase', fontSize: '0.65rem', letterSpacing: '0.05em' }}>{h}</Typography>
           ))}
@@ -126,8 +127,8 @@ export default function CustomerMaster() {
           </Box>
         ) : (
           <Stack divider={<Divider />}>
-            {filtered.map(c => (
-              <Box key={c.id} sx={{ display: 'grid', gridTemplateColumns: COL, px: 2, py: 1.5, alignItems: 'center', '&:hover': { bgcolor: 'rgba(108,99,255,0.03)' }, transition: 'background 0.15s' }}>
+            {filtered.slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage).map(c => (
+              <Box key={c.id} className="grid-table-row" sx={{ display: 'grid', gridTemplateColumns: COL, px: 2, py: 1.5, alignItems: 'center', '&:hover': { bgcolor: 'rgba(108,99,255,0.03)' }, transition: 'background 0.15s', minWidth: '950px' }}>
                 <Box>
                   <Typography variant="body2" sx={{ fontWeight: 700, color: 'text.primary' }}>{c.name}</Typography>
                   <Typography variant="caption" sx={{ color: 'text.secondary' }}>{c.city}, {c.state}</Typography>
@@ -152,6 +153,20 @@ export default function CustomerMaster() {
             ))}
           </Stack>
         )}
+        {filtered.length > 20 && (
+          <TablePagination
+            component="div"
+            count={filtered.length}
+            page={page}
+            onPageChange={(e, newPage) => setPage(newPage)}
+            rowsPerPage={rowsPerPage}
+            onRowsPerPageChange={(e) => {
+              setRowsPerPage(parseInt(e.target.value, 10))
+              setPage(0)
+            }}
+            rowsPerPageOptions={[10, 20, 50]}
+          />
+        )}
         <Box sx={{ px: 2, py: 1.5, bgcolor: '#F8F9FC', borderTop: '1px solid', borderColor: 'divider' }}>
           <Typography variant="caption" sx={{ color: 'text.secondary' }}>Showing {filtered.length} of {customers.length} customers</Typography>
         </Box>
@@ -165,7 +180,8 @@ export default function CustomerMaster() {
           <Grid container spacing={2}>
             <Grid size={12}>
               <Typography variant="caption" sx={{ fontWeight: 600, color: '#374151', mb: 0.5, display: 'block' }}>Customer Name / Company Name *</Typography>
-              <TextField fullWidth size="small" value={form.name} onChange={f('name')} />
+              <TextField fullWidth size="small" value={form.name} onChange={f('name')}
+                error={submitted && !form.name} helperText={submitted && !form.name ? 'Required' : ''} />
             </Grid>
             <Grid size={{ xs: 12, sm: 6 }}>
               <Typography variant="caption" sx={{ fontWeight: 600, color: '#374151', mb: 0.5, display: 'block' }}>Contact Person</Typography>
@@ -173,7 +189,8 @@ export default function CustomerMaster() {
             </Grid>
             <Grid size={{ xs: 12, sm: 6 }}>
               <Typography variant="caption" sx={{ fontWeight: 600, color: '#374151', mb: 0.5, display: 'block' }}>Phone *</Typography>
-              <TextField fullWidth size="small" value={form.phone} onChange={f('phone')} />
+              <TextField fullWidth size="small" value={form.phone} onChange={f('phone')}
+                error={submitted && !form.phone} helperText={submitted && !form.phone ? 'Required' : ''} />
             </Grid>
             <Grid size={{ xs: 12, sm: 6 }}>
               <Typography variant="caption" sx={{ fontWeight: 600, color: '#374151', mb: 0.5, display: 'block' }}>Email</Typography>

@@ -3,57 +3,78 @@ import {
   Box, Typography, Card, CardContent, Button, IconButton,
   TextField, InputAdornment, Dialog, DialogTitle, DialogContent,
   DialogActions, Grid, Stack, Divider, Tooltip, Avatar, MenuItem, Chip,
-  Autocomplete
+  Autocomplete, TablePagination
 } from '@mui/material'
 import AddRoundedIcon from '@mui/icons-material/AddRounded'
 import SearchRoundedIcon from '@mui/icons-material/SearchRounded'
 import EditRoundedIcon from '@mui/icons-material/EditRounded'
 import DeleteRoundedIcon from '@mui/icons-material/DeleteRounded'
 import ShoppingCartCheckoutRoundedIcon from '@mui/icons-material/ShoppingCartCheckoutRounded'
-import { getDb, saveDb } from './mockDb'
-
-const SUPPLIER_OPTIONS = ['Bengal Jute Suppliers', 'Green Fibre Works', 'Eastern Jute Traders', 'Sunrise Raw Materials']
-
-const RM_CATALOG = {
-  'Raw Jute Fibre A-Grade':      { color: 'Natural', unit: 'KG'   },
-  'Raw Cotton Yarn 40s':         { color: 'White',   unit: 'KG'   },
-  'Lamination Film Transparent': { color: 'Clear',   unit: 'ROLL' },
-  'Printing Ink - Jet Black':    { color: 'Black',   unit: 'KG'   },
-  'Hessian Cloth':               { color: 'Natural', unit: 'MTR'  },
-  'Jute Cloth':                  { color: 'Golden',  unit: 'MTR'  },
-}
-
-const RM_OPTIONS = Object.keys(RM_CATALOG)
-const UOMS = ['MTR', 'KG', 'PCS', 'ROLL', 'BAG', 'TON']
+import { getDb, saveDb, getMasters } from './mockDb'
+import { DatePicker } from '@mui/x-date-pickers/DatePicker'
+import dayjs from 'dayjs'
 
 const emptyItemRow = () => ({
-  name: 'Raw Jute Fibre A-Grade',
-  color: 'Natural',
+  name: '',
+  color: '',
   qty: '',
-  unit: 'KG',
+  unit: '',
   rate: ''
 })
 
 const emptyForm = () => ({
   date: '',
   poNo: '',
-  supplier: 'Bengal Jute Suppliers',
+  supplier: '',
   items: [emptyItemRow()]
 })
 
-const COL = '120px 140px 1.5fr 2fr 120px 100px'
-const HEADS = ['PO Date', 'PO No.', 'Supplier', 'Ordered Materials', 'Total Value', 'Actions']
+const COL = '120px 140px 1.5fr 1.5fr 1fr 120px 100px'
+const HEADS = ['PO Date', 'PO No.', 'Supplier', 'Material', 'Color', 'Qty', 'Actions']
 
 export default function PORawMaterial() {
   const [db, setDb] = useState({ pos: [] })
+  const [supplierOptions, setSupplierOptions] = useState([])
+  const [materialCatalog, setMaterialCatalog] = useState({})
+  const [materialOptions, setMaterialOptions] = useState([])
+  const [unitOptions, setUnitOptions] = useState([])
   const [search, setSearch] = useState('')
   const [dialog, setDialog] = useState(false)
   const [editId, setEditId] = useState(null)
   const [form, setForm] = useState(emptyForm())
   const [deleteId, setDeleteId] = useState(null)
+  const [submitted, setSubmitted] = useState(false)
+  const [page, setPage] = useState(0)
+  const [rowsPerPage, setRowsPerPage] = useState(20)
 
   useEffect(() => {
-    setDb(getDb())
+    setPage(0)
+  }, [search])
+
+  const loadData = () => {
+    getDb(['pos']).then(data => setDb(data)).catch(err => console.error(err))
+  }
+
+  useEffect(() => {
+    loadData()
+    getMasters('suppliers')
+      .then(data => setSupplierOptions(data.filter(s => s.status === 'Active').map(s => s.name)))
+      .catch(err => console.error(err))
+    getMasters('materials')
+      .then(data => {
+        const cat = {}
+        data.filter(m => m.status === 'Active').forEach(m => {
+          // Each color variant becomes a separate selectable option
+          const key = m.color ? `${m.name} (${m.color})` : m.name
+          cat[key] = { name: m.name, color: m.color || '', unit: m.uom || '' }
+        })
+        setMaterialCatalog(cat)
+        setMaterialOptions(Object.keys(cat).sort())
+      })
+      .catch(err => console.error(err))
+    getMasters('units')
+      .then(data => setUnitOptions(data.filter(u => u.status === 'Active').map(u => ({ name: u.name, unitName: u.unitName || u.name }))))
+      .catch(err => console.error(err))
   }, [])
 
   const filtered = (db.pos || []).filter(p =>
@@ -61,9 +82,17 @@ export default function PORawMaterial() {
     p.supplier?.toLowerCase().includes(search.toLowerCase())
   )
 
-  const openAdd = () => { setEditId(null); setForm(emptyForm()); setDialog(true) }
+  const paginated = search.trim() ? filtered : filtered.slice(page * rowsPerPage, (page + 1) * rowsPerPage)
+
+  const openAdd = () => {
+    setSubmitted(false)
+    setEditId(null)
+    setForm(emptyForm())
+    setDialog(true)
+  }
   
   const openEdit = (po) => {
+    setSubmitted(false)
     setEditId(po.id)
     setForm({
       date: po.date,
@@ -75,7 +104,12 @@ export default function PORawMaterial() {
   }
 
   const handleSave = () => {
-    if (!form.poNo || !form.date) return
+    setSubmitted(true)
+    if (!form.date || !form.poNo || !form.supplier) return
+    const hasInvalidItem = form.items.some(item => 
+      !item.name || !item.unit || !item.qty || Number(item.qty) <= 0 || !item.rate || Number(item.rate) <= 0
+    )
+    if (hasInvalidItem) return
     const newDb = { ...db }
     if (editId) {
       newDb.pos = newDb.pos.map(p => p.id === editId ? { ...form, id: editId } : p)
@@ -83,29 +117,32 @@ export default function PORawMaterial() {
       const newId = 'PO-' + Date.now().toString().slice(-4)
       newDb.pos.push({ ...form, id: newId })
     }
-    saveDb(newDb)
-    setDb(newDb)
-    setDialog(false)
+    saveDb({ pos: newDb.pos })
+      .then(() => {
+        loadData()
+        setDialog(false)
+      })
+      .catch(err => alert(err.message))
   }
 
   const handleDelete = () => {
     const newDb = { ...db, pos: db.pos.filter(p => p.id !== deleteId) }
-    saveDb(newDb)
-    setDb(newDb)
-    setDeleteId(null)
+    saveDb({ pos: newDb.pos })
+      .then(() => {
+        loadData()
+        setDeleteId(null)
+      })
+      .catch(err => alert(err.message))
   }
 
   const handleRMSelect = (idx, value) => {
     const items = [...form.items]
-    // value can be a catalog key (selected from list) or a custom typed string
-    const defaults = RM_CATALOG[value] || { color: '', unit: 'MTR' }
-    const isKnown = !!RM_CATALOG[value]
+    const defaults = materialCatalog[value] || { name: value || '', color: '', unit: '' }
     items[idx] = {
       ...items[idx],
-      name: value || '',
-      // Only auto-fill color/unit if it's a known catalog item
-      color: isKnown ? defaults.color : items[idx].color,
-      unit: isKnown ? defaults.unit : items[idx].unit
+      name: defaults.name || value || '',
+      color: defaults.color,
+      unit: defaults.unit || items[idx].unit,
     }
     setForm({ ...form, items })
   }
@@ -124,6 +161,12 @@ export default function PORawMaterial() {
 
   const calcTotal = (itemsList) => {
     return (itemsList || []).reduce((sum, item) => sum + (Number(item.qty || 0) * Number(item.rate || 0)), 0)
+  }
+
+  const unitLabel = (code) => {
+    if (!code) return '—'
+    const found = unitOptions.find(u => u.name === code)
+    return found ? found.unitName : code
   }
 
   return (
@@ -145,22 +188,6 @@ export default function PORawMaterial() {
         </Button>
       </Box>
 
-      {/* Summary Cards */}
-      <Grid container spacing={2} sx={{ mb: 3 }}>
-        {[
-          { label: 'Total POs Raised', value: db.pos.length, c: '#6C63FF', b: 'rgba(108,99,255,0.08)' },
-          { label: 'Active Suppliers linked', value: [...new Set(db.pos.map(p => p.supplier))].length, c: '#00C07F', b: 'rgba(0,192,127,0.08)' },
-          { label: 'Total Value Ordered', value: `₹${db.pos.reduce((sum, p) => sum + calcTotal(p.items), 0).toLocaleString('en-IN')}`, c: '#F59E0B', b: 'rgba(245,158,11,0.08)' },
-        ].map(s => (
-          <Grid key={s.label} size={{ xs: 6, md: 4 }}>
-            <Card><CardContent sx={{ p: 2.5 }}>
-              <Typography variant="h4" sx={{ fontWeight: 800, color: s.c }}>{s.value}</Typography>
-              <Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 500 }}>{s.label}</Typography>
-            </CardContent></Card>
-          </Grid>
-        ))}
-      </Grid>
-
       {/* Search */}
       <Card sx={{ mb: 2.5 }}>
         <CardContent sx={{ p: 2 }}>
@@ -171,10 +198,10 @@ export default function PORawMaterial() {
       </Card>
 
       {/* Table */}
-      <Card>
-        <Box sx={{ display: 'grid', gridTemplateColumns: COL, px: 2, py: 1.25, bgcolor: '#F8F9FC', borderBottom: '1px solid', borderColor: 'divider' }}>
+      <Card sx={{ overflowX: 'auto' }}>
+        <Box className="grid-table-row" sx={{ display: 'grid', gridTemplateColumns: COL, px: 2, py: 1.25, bgcolor: '#F8F9FC', borderBottom: '1px solid', borderColor: 'divider', minWidth: '950px' }}>
           {HEADS.map(h => (
-            <Typography key={h} variant="caption" sx={{ fontWeight: 700, color: 'text.secondary', textTransform: 'uppercase', fontSize: '0.65rem', letterSpacing: '0.05em' }}>{h}</Typography>
+            <Typography key={h} variant="caption" sx={{ fontWeight: 700, color: 'text.secondary', textTransform: 'uppercase', fontSize: '0.65rem', letterSpacing: '0.05em', textAlign: h === 'Qty' ? 'right' : 'left', pr: h === 'Qty' ? 3 : 0 }}>{h}</Typography>
           ))}
         </Box>
 
@@ -184,21 +211,39 @@ export default function PORawMaterial() {
           </Box>
         ) : (
           <Stack divider={<Divider />}>
-            {filtered.map(p => (
-              <Box key={p.id} sx={{ display: 'grid', gridTemplateColumns: COL, px: 2, py: 1.5, alignItems: 'center', '&:hover': { bgcolor: 'rgba(108,99,255,0.03)' }, transition: 'background 0.15s' }}>
-                <Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 600 }}>{p.date}</Typography>
+            {paginated.map(p => (
+              <Box key={p.id} className="grid-table-row" sx={{ display: 'grid', gridTemplateColumns: COL, px: 2, py: 1.5, alignItems: 'center', '&:hover': { bgcolor: 'rgba(108,99,255,0.03)' }, transition: 'background 0.15s', minWidth: '950px' }}>
+                <Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 600 }}>{p.date ? dayjs(p.date).format('DD/MM/YYYY') : '—'}</Typography>
                 <Typography variant="body2" sx={{ fontWeight: 700, color: 'primary.main' }}>{p.poNo || '—'}</Typography>
                 <Typography variant="body2" sx={{ fontWeight: 700 }}>{p.supplier}</Typography>
+                
+                {/* Material Name Only */}
                 <Box>
                   {p.items.map((it, idx) => (
-                    <Typography key={idx} variant="caption" sx={{ display: 'block', color: 'text.secondary' }}>
-                      • {it.name} ({it.color}) x {it.qty} {it.unit}
+                    <Typography key={idx} variant="body2" sx={{ display: 'block', height: '24px', lineHeight: '24px', color: 'text.primary', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {it.name}
                     </Typography>
                   ))}
                 </Box>
-                <Typography variant="body2" sx={{ fontWeight: 700, color: '#374151' }}>
-                  ₹{calcTotal(p.items).toLocaleString('en-IN')}
-                </Typography>
+
+                {/* Color Column */}
+                <Box>
+                  {p.items.map((it, idx) => (
+                    <Typography key={idx} variant="caption" sx={{ display: 'block', height: '24px', lineHeight: '24px', color: 'text.secondary', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {it.color || '—'}
+                    </Typography>
+                  ))}
+                </Box>
+
+                {/* Qty Column */}
+                <Box sx={{ textAlign: 'right', pr: 3 }}>
+                  {p.items.map((it, idx) => (
+                    <Typography key={idx} variant="body2" sx={{ display: 'block', height: '24px', lineHeight: '24px', fontWeight: 600 }}>
+                      {Number(it.qty || 0).toLocaleString()} {unitLabel(it.unit)}
+                    </Typography>
+                  ))}
+                </Box>
+
                 <Box sx={{ display: 'flex', gap: 0.5 }}>
                   <Tooltip title="Edit"><IconButton size="small" sx={{ color: 'primary.main' }} onClick={() => openEdit(p)}><EditRoundedIcon fontSize="small" /></IconButton></Tooltip>
                   <Tooltip title="Delete"><IconButton size="small" sx={{ color: 'error.main' }} onClick={() => setDeleteId(p.id)}><DeleteRoundedIcon fontSize="small" /></IconButton></Tooltip>
@@ -206,6 +251,20 @@ export default function PORawMaterial() {
               </Box>
             ))}
           </Stack>
+        )}
+        {filtered.length > 20 && (
+          <TablePagination
+            component="div"
+            count={filtered.length}
+            page={page}
+            onPageChange={(e, newPage) => setPage(newPage)}
+            rowsPerPage={rowsPerPage}
+            onRowsPerPageChange={(e) => {
+              setRowsPerPage(parseInt(e.target.value, 10))
+              setPage(0)
+            }}
+            rowsPerPageOptions={[20, 50, 100]}
+          />
         )}
       </Card>
 
@@ -217,17 +276,48 @@ export default function PORawMaterial() {
           <Grid container spacing={2}>
             <Grid size={{ xs: 12, sm: 4 }}>
               <Typography variant="caption" sx={{ fontWeight: 600, color: '#374151', mb: 0.5, display: 'block' }}>PO Date *</Typography>
-              <TextField fullWidth size="small" type="date" value={form.date} onChange={e => setForm({ ...form, date: e.target.value })} />
+              <DatePicker
+                format="DD/MM/YYYY"
+                value={form.date ? dayjs(form.date) : null}
+                onChange={newValue => setForm({ ...form, date: newValue ? newValue.format('YYYY-MM-DD') : '' })}
+                slotProps={{
+                  textField: {
+                    size: 'small',
+                    fullWidth: true,
+                    error: submitted && !form.date,
+                    helperText: submitted && !form.date ? 'Required' : ''
+                  }
+                }}
+              />
             </Grid>
             <Grid size={{ xs: 12, sm: 4 }}>
               <Typography variant="caption" sx={{ fontWeight: 600, color: '#374151', mb: 0.5, display: 'block' }}>PO No. *</Typography>
-              <TextField fullWidth size="small" value={form.poNo} onChange={e => setForm({ ...form, poNo: e.target.value })} placeholder="e.g. PO-2026-90" />
+              <TextField
+                fullWidth
+                size="small"
+                value={form.poNo}
+                onChange={e => setForm({ ...form, poNo: e.target.value })}
+                placeholder="e.g. PO-2026-90"
+                error={submitted && !form.poNo}
+                helperText={submitted && !form.poNo ? 'Required' : ''}
+              />
             </Grid>
             <Grid size={{ xs: 12, sm: 4 }}>
               <Typography variant="caption" sx={{ fontWeight: 600, color: '#374151', mb: 0.5, display: 'block' }}>Supplier Party *</Typography>
-              <TextField fullWidth size="small" select value={form.supplier} onChange={e => setForm({ ...form, supplier: e.target.value })}>
-                {SUPPLIER_OPTIONS.map(s => <MenuItem key={s} value={s}>{s}</MenuItem>)}
-              </TextField>
+              <Autocomplete
+                size="small"
+                options={supplierOptions}
+                value={form.supplier || null}
+                onChange={(e, val) => setForm({ ...form, supplier: val || '' })}
+                renderInput={(params) => (
+                  <TextField
+                    {...params}
+                    placeholder="Select Supplier"
+                    error={submitted && !form.supplier}
+                    helperText={submitted && !form.supplier ? 'Required' : ''}
+                  />
+                )}
+              />
             </Grid>
 
             {/* Product items sub-table */}
@@ -248,24 +338,71 @@ export default function PORawMaterial() {
                     <Autocomplete
                       freeSolo
                       size="small"
-                      options={RM_OPTIONS}
-                      value={row.name}
-                      onChange={(e, newVal) => handleRMSelect(idx, newVal || '')}
-                      onInputChange={(e, newInput) => handleRMSelect(idx, newInput)}
+                      options={materialOptions}
+                      value={row.name && row.color
+                        ? (materialOptions.find(o => o === `${row.name} (${row.color})`) || row.name)
+                        : (materialOptions.find(o => o === row.name) || row.name)}
+                      onChange={(e, newVal) => {
+                        // User selected an option from dropdown — full catalog lookup
+                        if (newVal) handleRMSelect(idx, newVal)
+                      }}
+                      onInputChange={(e, newInput, reason) => {
+                        // Only update raw name when user clears or types freely (not on option selection)
+                        if (reason === 'input' || reason === 'clear') {
+                          const items = [...form.items]
+                          items[idx] = { ...items[idx], name: newInput || '', color: '', unit: items[idx].unit }
+                          setForm({ ...form, items })
+                        }
+                      }}
                       renderInput={(params) => (
                         <TextField
                           {...params}
                           size="small"
                           placeholder="Select or type material..."
+                          error={submitted && !row.name}
+                          helperText={submitted && !row.name ? 'Required' : ''}
                         />
                       )}
                     />
                     <TextField size="small" value={row.color} onChange={setRow(idx, 'color')} placeholder="e.g. Natural" />
-                    <TextField size="small" select value={row.unit} onChange={setRow(idx, 'unit')}>
-                      {UOMS.map(u => <MenuItem key={u} value={u}>{u}</MenuItem>)}
-                    </TextField>
-                    <TextField size="small" type="number" value={row.qty} onChange={setRow(idx, 'qty')} placeholder="0" />
-                    <TextField size="small" type="number" value={row.rate} onChange={setRow(idx, 'rate')} placeholder="0.00" />
+                    <Autocomplete
+                      size="small"
+                      options={unitOptions}
+                      getOptionLabel={(opt) => opt.unitName || opt.name || ''}
+                      isOptionEqualToValue={(opt, val) => opt.name === (val?.name ?? val)}
+                      value={unitOptions.find(u => u.name === row.unit) || null}
+                      onChange={(e, val) => {
+                        const items = [...form.items]
+                        items[idx] = { ...items[idx], unit: val ? val.name : '' }
+                        setForm({ ...form, items })
+                      }}
+                      renderInput={(params) => (
+                        <TextField
+                          {...params}
+                          placeholder="Unit"
+                          error={submitted && !row.unit}
+                          helperText={submitted && !row.unit ? 'Required' : ''}
+                        />
+                      )}
+                    />
+                    <TextField
+                      size="small"
+                      type="number"
+                      value={row.qty}
+                      onChange={setRow(idx, 'qty')}
+                      placeholder="0"
+                      error={submitted && (!row.qty || Number(row.qty) <= 0)}
+                      helperText={submitted && (!row.qty || Number(row.qty) <= 0) ? 'Required' : ''}
+                    />
+                    <TextField
+                      size="small"
+                      type="number"
+                      value={row.rate}
+                      onChange={setRow(idx, 'rate')}
+                      placeholder="0.00"
+                      error={submitted && (!row.rate || Number(row.rate) <= 0)}
+                      helperText={submitted && (!row.rate || Number(row.rate) <= 0) ? 'Required' : ''}
+                    />
                     <IconButton size="small" onClick={() => removeRow(idx)} disabled={form.items.length === 1} sx={{ color: 'error.main' }}>
                       <DeleteRoundedIcon fontSize="small" />
                     </IconButton>

@@ -3,7 +3,7 @@ import {
   Box, Typography, Card, CardContent, Button, IconButton, Alert,
   TextField, InputAdornment, Dialog, DialogTitle, DialogContent,
   DialogActions, Grid, Stack, Divider, Tooltip, Avatar, MenuItem, Chip,
-  LinearProgress, Autocomplete
+  LinearProgress, Autocomplete, TablePagination
 } from '@mui/material'
 import AddRoundedIcon from '@mui/icons-material/AddRounded'
 import SearchRoundedIcon from '@mui/icons-material/SearchRounded'
@@ -13,24 +13,22 @@ import WarehouseRoundedIcon from '@mui/icons-material/WarehouseRounded'
 import AssessmentRoundedIcon from '@mui/icons-material/AssessmentRounded'
 import CheckCircleRoundedIcon from '@mui/icons-material/CheckCircleRounded'
 import PendingRoundedIcon from '@mui/icons-material/PendingRounded'
-import { getDb, saveDb } from './mockDb'
-
-const SUPPLIER_OPTIONS = ['Bengal Jute Suppliers', 'Green Fibre Works', 'Eastern Jute Traders', 'Sunrise Raw Materials']
-const UOMS = ['MTR', 'KG', 'PCS', 'ROLL', 'BAG', 'TON']
-const BASE_RM_OPTIONS = ['Raw Jute Fibre A-Grade', 'Raw Cotton Yarn 40s', 'Lamination Film Transparent', 'Printing Ink - Jet Black', 'Hessian Cloth', 'Jute Cloth']
+import { getDb, saveDb, getMasters } from './mockDb'
+import { DatePicker } from '@mui/x-date-pickers/DatePicker'
+import dayjs from 'dayjs'
 
 const emptyReceiveRow = () => ({
   name: '',
   color: '',
   qty: '',
-  unit: 'KG',
+  unit: '',
   rate: '',
   poQty: 0
 })
 
 const emptyForm = () => ({
   date: '',
-  supplier: 'Bengal Jute Suppliers',
+  supplier: '',
   items: [emptyReceiveRow()]
 })
 
@@ -39,21 +37,42 @@ const HEADS = ['Receipt Date', 'Supplier', 'Received Materials', 'Actions']
 
 export default function RMStockIn() {
   const [db, setDb] = useState({ pos: [], receipts: [] })
+  const [supplierOptions, setSupplierOptions] = useState([])
+  const [unitOptions, setUnitOptions] = useState([])
   const [search, setSearch] = useState('')
   const [dialog, setDialog] = useState(false)
   const [editId, setEditId] = useState(null)
   const [form, setForm] = useState(emptyForm())
   const [deleteId, setDeleteId] = useState(null)
   const [validationError, setValidationError] = useState('')
+  const [submitted, setSubmitted] = useState(false)
+  const [page, setPage] = useState(0)
+  const [rowsPerPage, setRowsPerPage] = useState(20)
 
   useEffect(() => {
-    setDb(getDb())
+    setPage(0)
+  }, [search])
+
+  const loadData = () => {
+    getDb(['receipts', 'pos']).then(data => setDb(data)).catch(err => console.error(err))
+  }
+
+  useEffect(() => {
+    loadData()
+    getMasters('suppliers')
+      .then(data => setSupplierOptions(data.filter(s => s.status === 'Active').map(s => s.name)))
+      .catch(err => console.error(err))
+    getMasters('units')
+      .then(data => setUnitOptions(data.filter(u => u.status === 'Active').map(u => ({ name: u.name, unitName: u.unitName || u.name }))))
+      .catch(err => console.error(err))
   }, [])
 
   const filtered = (db.receipts || []).filter(r =>
     r.supplier?.toLowerCase().includes(search.toLowerCase()) ||
     (r.items || []).some(it => it.name?.toLowerCase().includes(search.toLowerCase()))
   )
+
+  const paginated = search.trim() ? filtered : filtered.slice(page * rowsPerPage, (page + 1) * rowsPerPage)
 
   // Get POs of selected supplier
   const supplierPOs = (db.pos || []).filter(p => p.supplier === form.supplier)
@@ -62,12 +81,15 @@ export default function RMStockIn() {
   const supplierRMItems = supplierPOs.flatMap(po => (po.items || []).map(it => ({
     name: it.name,
     color: it.color || '',
-    unit: it.unit || 'KG'
+    unit: it.unit || '',
+    displayKey: it.color ? `${it.name} (${it.color})` : it.name
   })))
-  // Deduplicate by name
-  const supplierRMOptions = [...new Map(supplierRMItems.map(it => [it.name, it])).values()]
+
+  // Deduplicate by name+color so each color variant is separate
+  const supplierRMOptions = [...new Map(supplierRMItems.map(it => [`${it.name}|${it.color}`, it])).values()]
 
   const openAdd = () => {
+    setSubmitted(false)
     setValidationError('')
     setEditId(null)
     setForm(emptyForm())
@@ -75,6 +97,7 @@ export default function RMStockIn() {
   }
 
   const openEdit = (rec) => {
+    setSubmitted(false)
     setValidationError('')
     setEditId(rec.id)
     setForm({
@@ -107,8 +130,26 @@ export default function RMStockIn() {
     setValidationError('')
   }
 
+  const unitLabel = (code) => {
+    if (!code) return '—'
+    const found = unitOptions.find(u => u.name === code)
+    return found ? found.unitName : code
+  }
+
   const handleSave = () => {
+    setSubmitted(true)
     if (!form.date || !form.supplier) return
+
+    // Date Validation: Receipt Date cannot be before PO Date
+    const po = db.pos.find(p => p.poNo === form.poId || p.id === form.poId)
+    if (po && po.date && dayjs(form.date).isBefore(dayjs(po.date))) {
+      setValidationError(`VALIDATION ERROR: Receipt Date (${dayjs(form.date).format('DD/MM/YYYY')}) cannot be before PO Date (${dayjs(po.date).format('DD/MM/YYYY')})!`)
+      return
+    }
+
+    const hasInvalid = form.items.some(it => !it.name || !it.qty || Number(it.qty) <= 0 || !it.unit)
+    if (hasInvalid) return
+
     const hasItems = form.items.some(it => it.name && it.qty)
     if (!hasItems) {
       setValidationError('Please add at least one material with name and received quantity.')
@@ -119,9 +160,10 @@ export default function RMStockIn() {
     for (let idx = 0; idx < form.items.length; idx++) {
       const row = form.items[idx]
       if (!row.name || !row.qty) continue
-      const { available, orderedQty } = getPoBalance(row.name, form.supplier)
+      const { available, orderedQty } = getPoBalance(row.name, row.color, form.supplier)
       if (orderedQty > 0 && Number(row.qty) > available) {
-        setValidationError(`Row ${idx + 1}: Received qty (${row.qty}) exceeds available PO balance (${available}) for "${row.name}".`)
+        const label = row.color ? `${row.name} (${row.color})` : row.name
+        setValidationError(`Row ${idx + 1}: Received qty (${row.qty}) exceeds available PO balance (${available}) for "${label}".`)
         return
       }
     }
@@ -133,16 +175,22 @@ export default function RMStockIn() {
       const newId = 'REC-' + Date.now().toString().slice(-4)
       newDb.receipts.push({ ...form, id: newId })
     }
-    saveDb(newDb)
-    setDb(newDb)
-    setDialog(false)
+    saveDb({ receipts: newDb.receipts })
+      .then(() => {
+        loadData()
+        setDialog(false)
+      })
+      .catch(err => setValidationError(err.message))
   }
 
   const handleDelete = () => {
     const newDb = { ...db, receipts: db.receipts.filter(r => r.id !== deleteId) }
-    saveDb(newDb)
-    setDb(newDb)
-    setDeleteId(null)
+    saveDb({ receipts: newDb.receipts })
+      .then(() => {
+        loadData()
+        setDeleteId(null)
+      })
+      .catch(err => alert(err.message))
   }
 
   const setRowQty = (idx, value) => {
@@ -172,23 +220,28 @@ export default function RMStockIn() {
     setForm({ ...form, items: form.items.filter((_, i) => i !== idx) })
   }
 
-  // Compute PO ordered qty and already-received qty for a given material + supplier
-  const getPoBalance = (materialName, supplier) => {
+  // Compute PO ordered qty and already-received qty for a given material+color + supplier
+  const getPoBalance = (materialName, materialColor, supplier) => {
     if (!materialName) return { orderedQty: 0, alreadyReceived: 0, available: 0 }
-    
-    // Total ordered in all POs for this supplier + material
+    const color = materialColor || ''
+
+    // Total ordered in all POs for this supplier + material + color
     const orderedQty = (db.pos || [])
       .filter(po => po.supplier === supplier)
-      .flatMap(po => (po.items || []).filter(it => it.name === materialName))
+      .flatMap(po => (po.items || []).filter(it => it.name === materialName && (it.color || '') === color))
       .reduce((sum, it) => sum + Number(it.qty || 0), 0)
 
-    // Total already received (excluding current edit)
+    // Total already received (excluding current edit) for same name+color
     const alreadyReceived = (db.receipts || [])
       .filter(r => r.id !== editId && r.supplier === supplier)
-      .flatMap(r => (r.items || []).filter(it => it.name === materialName))
+      .flatMap(r => (r.items || []).filter(it => it.name === materialName && (it.color || '') === color))
       .reduce((sum, it) => sum + Number(it.qty || 0), 0)
 
-    return { orderedQty, alreadyReceived, available: orderedQty - alreadyReceived }
+    return { 
+      orderedQty, 
+      alreadyReceived, 
+      available: orderedQty - alreadyReceived 
+    }
   }
 
   return (
@@ -209,23 +262,6 @@ export default function RMStockIn() {
           Receive Stock
         </Button>
       </Box>
-
-      {/* Summary Cards */}
-      <Grid container spacing={2} sx={{ mb: 3 }}>
-        {[
-          { label: 'Total GRNs Created', value: db.receipts.length, c: '#6C63FF', b: 'rgba(108,99,255,0.08)' },
-          { label: 'Pending POs for Supplier', value: db.pos.length - db.receipts.length, c: '#EC4899', b: 'rgba(236,72,153,0.08)' },
-          { label: 'Total Received Weight / Qty', value: `${db.receipts.reduce((sum, r) => sum + r.items.reduce((s, it) => s + Number(it.qty || 0), 0), 0).toLocaleString()} units`, c: '#00C07F', b: 'rgba(0,192,127,0.08)' },
-        ].map(s => (
-          <Grid key={s.label} size={{ xs: 6, md: 4 }}>
-            <Card><CardContent sx={{ p: 2.5 }}>
-              <Typography variant="h4" sx={{ fontWeight: 800, color: s.c }}>{s.value}</Typography>
-              <Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 500 }}>{s.label}</Typography>
-            </CardContent></Card>
-          </Grid>
-        ))}
-      </Grid>
-
       {/* Search */}
       <Card sx={{ mb: 2.5 }}>
         <CardContent sx={{ p: 2 }}>
@@ -236,8 +272,8 @@ export default function RMStockIn() {
       </Card>
 
       {/* Table */}
-      <Card>
-        <Box sx={{ display: 'grid', gridTemplateColumns: COL, px: 2, py: 1.25, bgcolor: '#F8F9FC', borderBottom: '1px solid', borderColor: 'divider' }}>
+      <Card sx={{ overflowX: 'auto' }}>
+        <Box className="grid-table-row" sx={{ display: 'grid', gridTemplateColumns: COL, px: 2, py: 1.25, bgcolor: '#F8F9FC', borderBottom: '1px solid', borderColor: 'divider', minWidth: '950px' }}>
           {HEADS.map(h => (
             <Typography key={h} variant="caption" sx={{ fontWeight: 700, color: 'text.secondary', textTransform: 'uppercase', fontSize: '0.65rem', letterSpacing: '0.05em' }}>{h}</Typography>
           ))}
@@ -249,14 +285,14 @@ export default function RMStockIn() {
           </Box>
         ) : (
           <Stack divider={<Divider />}>
-            {filtered.map(r => (
-              <Box key={r.id} sx={{ display: 'grid', gridTemplateColumns: COL, px: 2, py: 1.5, alignItems: 'center', '&:hover': { bgcolor: 'rgba(108,99,255,0.03)' }, transition: 'background 0.15s' }}>
-                <Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 600 }}>{r.date}</Typography>
+            {paginated.map(r => (
+              <Box key={r.id} className="grid-table-row" sx={{ display: 'grid', gridTemplateColumns: COL, px: 2, py: 1.5, alignItems: 'center', '&:hover': { bgcolor: 'rgba(108,99,255,0.03)' }, transition: 'background 0.15s', minWidth: '950px' }}>
+                <Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 600 }}>{r.date ? dayjs(r.date).format('DD/MM/YYYY') : '—'}</Typography>
                 <Typography variant="body2" sx={{ fontWeight: 700 }}>{r.supplier}</Typography>
                 <Box>
                   {r.items.map((it, idx) => (
                     <Typography key={idx} variant="caption" sx={{ display: 'block', color: 'text.secondary' }}>
-                      • {it.name} ({it.color}) x {it.qty} {it.unit}
+                      • {it.name} ({it.color}) x {it.qty} {unitLabel(it.unit)}
                     </Typography>
                   ))}
                 </Box>
@@ -267,6 +303,20 @@ export default function RMStockIn() {
               </Box>
             ))}
           </Stack>
+        )}
+        {filtered.length > 20 && (
+          <TablePagination
+            component="div"
+            count={filtered.length}
+            page={page}
+            onPageChange={(e, newPage) => setPage(newPage)}
+            rowsPerPage={rowsPerPage}
+            onRowsPerPageChange={(e) => {
+              setRowsPerPage(parseInt(e.target.value, 10))
+              setPage(0)
+            }}
+            rowsPerPageOptions={[20, 50, 100]}
+          />
         )}
       </Card>
 
@@ -287,16 +337,16 @@ export default function RMStockIn() {
         ) : (
           <Stack spacing={2}>
             {(db.pos || []).map(po => {
-              // Collect all receipts against this PO
-              const poReceipts = (db.receipts || []).filter(r => r.poId === po.poNo || r.poId === po.id)
+              // Collect all receipts for this supplier
+              const poReceipts = (db.receipts || []).filter(r => r.supplier === po.supplier)
 
               return (
-                <Card key={po.id} sx={{ border: '1px solid', borderColor: 'divider' }}>
+                <Card key={po.id} sx={{ border: '1px solid', borderColor: 'divider', overflowX: 'auto' }}>
                   {/* PO Header */}
                   <Box sx={{ px: 2.5, py: 1.5, bgcolor: '#F8F9FC', borderBottom: '1px solid', borderColor: 'divider', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                     <Box>
                       <Typography variant="body2" sx={{ fontWeight: 800, color: 'primary.main' }}>{po.poNo || po.id}</Typography>
-                      <Typography variant="caption" sx={{ color: 'text.secondary' }}>Supplier: <strong>{po.supplier}</strong> &nbsp;|&nbsp; PO Date: {po.date || '—'}</Typography>
+                      <Typography variant="caption" sx={{ color: 'text.secondary' }}>Supplier: <strong>{po.supplier}</strong> &nbsp;|&nbsp; PO Date: {po.date ? dayjs(po.date).format('DD/MM/YYYY') : '—'}</Typography>
                     </Box>
                     <Chip
                       label={poReceipts.length === 0 ? 'Not Received' : 'Partially / Fully Received'}
@@ -314,7 +364,7 @@ export default function RMStockIn() {
                   {/* Material Rows */}
                   <Box sx={{ px: 2.5, py: 1 }}>
                     {/* Column Headers */}
-                    <Box sx={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr 1fr 160px', gap: 2, pb: 1, borderBottom: '1px solid', borderColor: 'divider', mb: 1 }}>
+                    <Box className="grid-table-row" sx={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr 1fr 160px', gap: 2, pb: 1, borderBottom: '1px solid', borderColor: 'divider', mb: 1, minWidth: '950px' }}>
                       {['Material', 'Color', 'Unit', 'Ordered Qty', 'Received Qty', 'Balance Pending'].map(h => (
                         <Typography key={h} variant="caption" sx={{ fontWeight: 700, color: 'text.secondary', fontSize: '0.62rem', textTransform: 'uppercase' }}>{h}</Typography>
                       ))}
@@ -326,15 +376,16 @@ export default function RMStockIn() {
                         const matchedItem = (rec.items || []).find(it => it.name === item.name && it.color === item.color)
                         return sum + Number(matchedItem?.qty || 0)
                       }, 0)
+
                       const balance = orderedQty - receivedQty
                       const pct = orderedQty > 0 ? Math.min((receivedQty / orderedQty) * 100, 100) : 0
                       const fullyReceived = balance <= 0
 
                       return (
-                        <Box key={idx} sx={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr 1fr 160px', gap: 2, alignItems: 'center', py: 1, borderBottom: idx < (po.items || []).length - 1 ? '1px dashed' : 'none', borderColor: 'divider' }}>
+                        <Box key={idx} className="grid-table-row" sx={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr 1fr 160px', gap: 2, alignItems: 'center', py: 1, borderBottom: idx < (po.items || []).length - 1 ? '1px dashed' : 'none', borderColor: 'divider', minWidth: '950px' }}>
                           <Typography variant="body2" sx={{ fontWeight: 700 }}>{item.name}</Typography>
                           <Typography variant="caption" sx={{ color: 'text.secondary' }}>{item.color || '—'}</Typography>
-                          <Typography variant="caption" sx={{ color: 'text.secondary' }}>{item.unit || '—'}</Typography>
+                          <Typography variant="caption" sx={{ color: 'text.secondary' }}>{unitLabel(item.unit)}</Typography>
                           <Typography variant="body2" sx={{ fontWeight: 700, color: 'text.primary' }}>{orderedQty.toLocaleString()}</Typography>
                           <Typography variant="body2" sx={{ fontWeight: 700, color: '#00C07F' }}>{receivedQty.toLocaleString()}</Typography>
                           <Box>
@@ -380,13 +431,36 @@ export default function RMStockIn() {
             <Grid container spacing={2}>
               <Grid size={{ xs: 12, sm: 6 }}>
                 <Typography variant="caption" sx={{ fontWeight: 600, color: '#374151', mb: 0.5, display: 'block' }}>Supplier Party *</Typography>
-                <TextField fullWidth size="small" select value={form.supplier} onChange={e => setForm({ ...form, supplier: e.target.value, items: [emptyReceiveRow()] })}>
-                  {SUPPLIER_OPTIONS.map(s => <MenuItem key={s} value={s}>{s}</MenuItem>)}
-                </TextField>
+                <Autocomplete
+                  size="small"
+                  options={supplierOptions}
+                  value={form.supplier || null}
+                  onChange={(e, val) => setForm({ ...form, supplier: val || '', items: [emptyReceiveRow()] })}
+                  renderInput={(params) => (
+                    <TextField
+                      {...params}
+                      placeholder="Select Supplier"
+                      error={submitted && !form.supplier}
+                      helperText={submitted && !form.supplier ? 'Required' : ''}
+                    />
+                  )}
+                />
               </Grid>
               <Grid size={{ xs: 12, sm: 6 }}>
                 <Typography variant="caption" sx={{ fontWeight: 600, color: '#374151', mb: 0.5, display: 'block' }}>Stock IN Date *</Typography>
-                <TextField fullWidth size="small" type="date" value={form.date} onChange={e => setForm({ ...form, date: e.target.value })} />
+                <DatePicker
+                  format="DD/MM/YYYY"
+                  value={form.date ? dayjs(form.date) : null}
+                  onChange={newValue => setForm({ ...form, date: newValue ? newValue.format('YYYY-MM-DD') : '' })}
+                  slotProps={{
+                    textField: {
+                      size: 'small',
+                      fullWidth: true,
+                      error: submitted && !form.date,
+                      helperText: submitted && !form.date ? 'Required' : ''
+                    }
+                  }}
+                />
               </Grid>
 
               {/* Items details table */}
@@ -403,46 +477,60 @@ export default function RMStockIn() {
 
                   {/* Rows */}
                   {form.items.map((row, idx) => {
-                    const { orderedQty, alreadyReceived, available } = getPoBalance(row.name, form.supplier)
+                    const { orderedQty, alreadyReceived, available } = getPoBalance(row.name, row.color, form.supplier)
                     const receivedNum = Number(row.qty || 0)
                     const exceeded = orderedQty > 0 && receivedNum > available
                     const hasPoData = orderedQty > 0
 
                     return (
                     <Box key={idx} sx={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 120px 120px 36px', gap: 1.5, alignItems: 'start', mb: 1.5 }}>
-                      {/* Material name — select from supplier's PO items only */}
-                      <TextField
+                      {/* Material name+color — show as "fgg (green)" variants */}
+                      <Autocomplete
                         size="small"
-                        select
-                        value={row.name}
-                        onChange={e => {
-                          const selected = supplierRMOptions.find(it => it.name === e.target.value)
+                        options={supplierRMOptions.map(it => it.displayKey)}
+                        value={row.name ? (row.color ? `${row.name} (${row.color})` : row.name) : null}
+                        onChange={(e, val) => {
+                          const selected = supplierRMOptions.find(it => it.displayKey === val)
                           const items = [...form.items]
                           items[idx] = {
                             ...items[idx],
-                            name: e.target.value,
-                            color: selected?.color || items[idx].color,
+                            name: selected?.name || val || '',
+                            color: selected?.color ?? items[idx].color,
                             unit: selected?.unit || items[idx].unit
                           }
                           setForm({ ...form, items })
                         }}
-                        displayEmpty
-                      >
-                        <MenuItem value="" disabled>
-                          <em style={{ color: '#9CA3AF', fontSize: '0.85rem' }}>Select material...</em>
-                        </MenuItem>
-                        {supplierRMOptions.length === 0 ? (
-                          <MenuItem disabled><em>No PO materials for this supplier</em></MenuItem>
-                        ) : (
-                          supplierRMOptions.map(it => (
-                            <MenuItem key={it.name} value={it.name}>{it.name}</MenuItem>
-                          ))
+                        renderInput={(params) => (
+                          <TextField
+                            {...params}
+                            placeholder="Select PO material..."
+                            error={submitted && !row.name}
+                            helperText={submitted && !row.name ? 'Required' : ''}
+                          />
                         )}
-                      </TextField>
+                      />
+                      {/* Color read-only from catalog, but still editable */}
                       <TextField size="small" value={row.color} onChange={setRow(idx, 'color')} placeholder="e.g. Natural" />
-                      <TextField size="small" select value={row.unit || 'KG'} onChange={setRow(idx, 'unit')}>
-                        {UOMS.map(u => <MenuItem key={u} value={u}>{u}</MenuItem>)}
-                      </TextField>
+                      <Autocomplete
+                        size="small"
+                        options={unitOptions}
+                        getOptionLabel={(opt) => opt.unitName || opt.name || ''}
+                        isOptionEqualToValue={(opt, val) => opt.name === (val?.name ?? val)}
+                        value={unitOptions.find(u => u.name === row.unit) || null}
+                        onChange={(e, val) => {
+                          const items = [...form.items]
+                          items[idx] = { ...items[idx], unit: val ? val.name : '' }
+                          setForm({ ...form, items })
+                        }}
+                        renderInput={(params) => (
+                          <TextField
+                            {...params}
+                            placeholder="Unit"
+                            error={submitted && !row.unit}
+                            helperText={submitted && !row.unit ? 'Required' : ''}
+                          />
+                        )}
+                      />
 
                       {/* PO Available Balance display */}
                       <Box sx={{ pt: 0.5 }}>
@@ -451,13 +539,13 @@ export default function RMStockIn() {
                             <Typography variant="caption" sx={{ fontWeight: 800, color: available > 0 ? '#00C07F' : '#EF4444', display: 'block', fontSize: '0.75rem' }}>
                               {available > 0 ? `${available} available` : 'No stock left'}
                             </Typography>
-                            <Typography variant="caption" sx={{ color: 'text.secondary', fontSize: '0.65rem' }}>
+                            <Typography variant="caption" sx={{ color: 'text.secondary', fontSize: '0.65rem', display: 'block' }}>
                               PO: {orderedQty} | Recd: {alreadyReceived}
                             </Typography>
                           </>
                         ) : (
                           <Typography variant="caption" sx={{ color: 'text.secondary', fontSize: '0.65rem' }}>
-                            {row.name ? 'No PO found' : '—'}
+                            {row.name ? 'No PO stock' : '—'}
                           </Typography>
                         )}
                       </Box>
@@ -469,10 +557,11 @@ export default function RMStockIn() {
                           value={row.qty}
                           onChange={e => setRowQty(idx, e.target.value)}
                           placeholder="0"
-                          error={exceeded}
+                          error={exceeded || (submitted && (!row.qty || Number(row.qty) <= 0))}
+                          helperText={submitted && (!row.qty || Number(row.qty) <= 0) ? 'Required & > 0' : ''}
                           sx={{
                             '& .MuiOutlinedInput-root': {
-                              '& fieldset': { borderColor: exceeded ? '#EF4444' : undefined }
+                              '& fieldset': { borderColor: (exceeded || (submitted && (!row.qty || Number(row.qty) <= 0))) ? '#EF4444' : undefined }
                             }
                           }}
                         />

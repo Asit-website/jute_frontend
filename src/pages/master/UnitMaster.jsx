@@ -1,14 +1,15 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import {
   Box, Typography, Card, CardContent, Button, Chip, IconButton,
   TextField, InputAdornment, Dialog, DialogTitle, DialogContent,
-  DialogActions, Grid, Stack, Divider, Tooltip, Avatar,
+  DialogActions, Grid, Stack, Divider, Tooltip, Avatar, TablePagination, Alert
 } from '@mui/material'
 import AddRoundedIcon from '@mui/icons-material/AddRounded'
 import SearchRoundedIcon from '@mui/icons-material/SearchRounded'
 import EditRoundedIcon from '@mui/icons-material/EditRounded'
 import DeleteRoundedIcon from '@mui/icons-material/DeleteRounded'
 import ScaleRoundedIcon from '@mui/icons-material/ScaleRounded'
+import { getMasters, saveMaster, deleteMaster } from '../workflow/mockDb'
 
 const statusColor = { Active: 'success', Inactive: 'error' }
 
@@ -19,45 +20,80 @@ const emptyForm = {
   status: 'Active',
 }
 
-const initialData = [
-  { id: 1, name: 'MTR', unitName: 'Meters', description: 'Length measurement unit', status: 'Active' },
-  { id: 2, name: 'KG', unitName: 'Kilograms', description: 'Weight measurement unit', status: 'Active' },
-  { id: 3, name: 'PCS', unitName: 'Pieces', description: 'Count measurement unit', status: 'Active' },
-  { id: 4, name: 'ROLL', unitName: 'Rolls', description: 'Bundle fabric measurement unit', status: 'Active' },
-  { id: 5, name: 'BAG', unitName: 'Bags', description: 'Packing count unit', status: 'Active' },
-  { id: 6, name: 'TON', unitName: 'Tons', description: 'Bulk weight measurement unit', status: 'Active' },
-]
-
 const COL = '150px 180px 2fr 120px 100px'
 const HEADS = ['Unit Code', 'Unit Name', 'Description', 'Status', 'Actions']
 
 export default function UnitMaster() {
-  const [units, setUnits] = useState(initialData)
+  const [units, setUnits] = useState([])
   const [search, setSearch] = useState('')
   const [dialog, setDialog] = useState(false)
   const [editId, setEditId] = useState(null)
   const [form, setForm] = useState(emptyForm)
   const [deleteId, setDeleteId] = useState(null)
+  const [submitted, setSubmitted] = useState(false)
+  const [page, setPage] = useState(0)
+  const [rowsPerPage, setRowsPerPage] = useState(20)
+  const [validationError, setValidationError] = useState('')
+
+  useEffect(() => {
+    getMasters('units').then(data => setUnits(data)).catch(err => console.error(err))
+  }, [])
+
+  useEffect(() => {
+    setPage(0)
+  }, [search])
 
   const filtered = units.filter(u =>
-    u.name.toLowerCase().includes(search.toLowerCase()) ||
+    (u.name || '').toLowerCase().includes(search.toLowerCase()) ||
     (u.unitName || '').toLowerCase().includes(search.toLowerCase()) ||
     (u.description || '').toLowerCase().includes(search.toLowerCase())
-  )
+  ).sort((a, b) => (a.name || '').localeCompare(b.name || ''))
 
-  const openAdd = () => { setEditId(null); setForm(emptyForm); setDialog(true) }
-  const openEdit = (u) => { setEditId(u.id); setForm({ ...u }); setDialog(true) }
+  const openAdd = () => { setSubmitted(false); setEditId(null); setValidationError(''); setForm(emptyForm); setDialog(true) }
+  const openEdit = (u) => { setSubmitted(false); setEditId(u.id); setValidationError(''); setForm({ ...u }); setDialog(true) }
+
   const handleSave = () => {
+    setSubmitted(true)
+    setValidationError('')
     if (!form.name || !form.unitName) return
-    const rowData = { ...form, name: form.name.toUpperCase() }
-    if (editId) {
-      setUnits(prev => prev.map(u => u.id === editId ? { ...rowData, id: editId } : u))
-    } else {
-      setUnits(prev => [...prev, { ...rowData, id: Date.now() }])
+
+    // Normalize and check for duplicate (ignoring spaces and dots)
+    const normalize = (str) => (str || '').replace(/[\s\.]+/g, '').toLowerCase();
+    const normName = normalize(form.name);
+    const normUnitName = normalize(form.unitName);
+
+    for (const u of units) {
+      if (u.id === editId) continue;
+      if (normalize(u.name) === normName) {
+        setValidationError('Unit Code can not be same.');
+        return;
+      }
+      if (normalize(u.unitName) === normUnitName) {
+        setValidationError('Unit Name can not be same.');
+        return;
+      }
     }
-    setDialog(false)
+
+    const rowData = { ...form, name: form.name.toUpperCase() }
+    saveMaster('units', rowData)
+      .then(() => getMasters('units'))
+      .then(data => {
+        setUnits(data)
+        setDialog(false)
+      })
+      .catch(err => setValidationError(err.message))
   }
-  const handleDelete = () => { setUnits(prev => prev.filter(u => u.id !== deleteId)); setDeleteId(null) }
+
+  const handleDelete = () => {
+    if (!deleteId) return
+    deleteMaster('units', deleteId)
+      .then(() => getMasters('units'))
+      .then(data => {
+        setUnits(data)
+        setDeleteId(null)
+      })
+      .catch(err => alert(err.message))
+  }
   const f = (k) => (e) => setForm({ ...form, [k]: e.target.value })
 
   return (
@@ -79,22 +115,6 @@ export default function UnitMaster() {
         </Button>
       </Box>
 
-      {/* Summary Cards */}
-      <Grid container spacing={2} sx={{ mb: 3 }}>
-        {[
-          { label: 'Total Units', value: units.length, c: '#6C63FF', b: 'rgba(108,99,255,0.08)' },
-          { label: 'Active Units', value: units.filter(u => u.status === 'Active').length, c: '#00C07F', b: 'rgba(0,192,127,0.08)' },
-          { label: 'Inactive Units', value: units.filter(u => u.status === 'Inactive').length, c: '#EF4444', b: 'rgba(239,68,68,0.08)' },
-        ].map(s => (
-          <Grid key={s.label} size={{ xs: 6, md: 4 }}>
-            <Card><CardContent sx={{ p: 2.5 }}>
-              <Typography variant="h4" sx={{ fontWeight: 800, color: s.c }}>{s.value}</Typography>
-              <Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 500 }}>{s.label}</Typography>
-            </CardContent></Card>
-          </Grid>
-        ))}
-      </Grid>
-
       {/* Search */}
       <Card sx={{ mb: 2.5 }}>
         <CardContent sx={{ p: 2 }}>
@@ -105,9 +125,9 @@ export default function UnitMaster() {
       </Card>
 
       {/* Table */}
-      <Card>
+      <Card sx={{ overflowX: 'auto' }}>
         {/* Table Head */}
-        <Box sx={{ display: 'grid', gridTemplateColumns: COL, px: 2, py: 1.25, bgcolor: '#F8F9FC', borderBottom: '1px solid', borderColor: 'divider' }}>
+        <Box className="grid-table-row" sx={{ display: 'grid', gridTemplateColumns: COL, px: 2, py: 1.25, bgcolor: '#F8F9FC', borderBottom: '1px solid', borderColor: 'divider', minWidth: '950px' }}>
           {HEADS.map(h => (
             <Typography key={h} variant="caption" sx={{ fontWeight: 700, color: 'text.secondary', textTransform: 'uppercase', fontSize: '0.65rem', letterSpacing: '0.05em' }}>{h}</Typography>
           ))}
@@ -119,8 +139,8 @@ export default function UnitMaster() {
           </Box>
         ) : (
           <Stack divider={<Divider />}>
-            {filtered.map(u => (
-              <Box key={u.id} sx={{ display: 'grid', gridTemplateColumns: COL, px: 2, py: 1.5, alignItems: 'center', '&:hover': { bgcolor: 'rgba(108,99,255,0.03)' }, transition: 'background 0.15s' }}>
+            {filtered.slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage).map(u => (
+              <Box key={u.id} className="grid-table-row" sx={{ display: 'grid', gridTemplateColumns: COL, px: 2, py: 1.5, alignItems: 'center', '&:hover': { bgcolor: 'rgba(108,99,255,0.03)' }, transition: 'background 0.15s', minWidth: '950px' }}>
                 <Typography variant="body2" sx={{ fontWeight: 700, color: 'text.primary' }}>{u.name}</Typography>
                 <Typography variant="body2" sx={{ fontWeight: 700, color: 'text.primary' }}>{u.unitName}</Typography>
                 <Typography variant="caption" sx={{ color: 'text.secondary' }}>{u.description || '—'}</Typography>
@@ -133,6 +153,20 @@ export default function UnitMaster() {
             ))}
           </Stack>
         )}
+        {filtered.length > 20 && (
+          <TablePagination
+            component="div"
+            count={filtered.length}
+            page={page}
+            onPageChange={(e, newPage) => setPage(newPage)}
+            rowsPerPage={rowsPerPage}
+            onRowsPerPageChange={(e) => {
+              setRowsPerPage(parseInt(e.target.value, 10))
+              setPage(0)
+            }}
+            rowsPerPageOptions={[10, 20, 50]}
+          />
+        )}
         <Box sx={{ px: 2, py: 1.5, bgcolor: '#F8F9FC', borderTop: '1px solid', borderColor: 'divider' }}>
           <Typography variant="caption" sx={{ color: 'text.secondary' }}>Showing {filtered.length} of {units.length} units</Typography>
         </Box>
@@ -143,14 +177,23 @@ export default function UnitMaster() {
         <DialogTitle sx={{ fontWeight: 800 }}>{editId ? 'Edit Unit' : 'Add Unit'}</DialogTitle>
         <Divider />
         <DialogContent sx={{ pt: 2.5 }}>
+          {validationError && (
+            <Alert severity="error" sx={{ mb: 2.5, borderRadius: 2 }}>
+              {validationError}
+            </Alert>
+          )}
           <Grid container spacing={2}>
             <Grid size={{ xs: 12, sm: 6 }}>
               <Typography variant="caption" sx={{ fontWeight: 600, color: '#374151', mb: 0.5, display: 'block' }}>Unit Code *</Typography>
-              <TextField fullWidth size="small" value={form.name} onChange={f('name')} placeholder="e.g. MTR" />
+              <TextField fullWidth size="small" value={form.name} onChange={f('name')} placeholder="e.g. MTR"
+                error={submitted && !form.name}
+                helperText={submitted && !form.name ? 'Required' : ''} />
             </Grid>
             <Grid size={{ xs: 12, sm: 6 }}>
               <Typography variant="caption" sx={{ fontWeight: 600, color: '#374151', mb: 0.5, display: 'block' }}>Unit Name *</Typography>
-              <TextField fullWidth size="small" value={form.unitName} onChange={f('unitName')} placeholder="e.g. Meters" />
+              <TextField fullWidth size="small" value={form.unitName} onChange={f('unitName')} placeholder="e.g. Meters"
+                error={submitted && !form.unitName}
+                helperText={submitted && !form.unitName ? 'Required' : ''} />
             </Grid>
             <Grid size={12}>
               <Typography variant="caption" sx={{ fontWeight: 600, color: '#374151', mb: 0.5, display: 'block' }}>Description</Typography>
